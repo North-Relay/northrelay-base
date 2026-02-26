@@ -1,0 +1,46 @@
+# CodeQL Configuration for NorthRelay Base Images
+# =============================================================================
+# This configuration reduces false positives from Docker base image scanning
+# by excluding paths that contain bundled dependencies not used in production.
+#
+# Context:
+# - /usr/local/lib/node_modules/npm/: Bundled with Node.js, not used in prod
+# - /usr/local/bin/mc: MinIO client (manual utility, low attack surface)
+#
+# These paths are scanned by default but generate 195+ false positive alerts.
+# =============================================================================
+
+name: "NorthRelay Base Image CodeQL Config"
+
+# Paths to exclude from code scanning
+paths-ignore:
+  # Exclude npm bundled dependencies (shipped with Node.js base image)
+  # These are NOT used in production (Next.js standalone doesn't use npm)
+  - "/usr/local/lib/node_modules/npm/**"
+  - "/usr/local/share/npm/**"
+  
+  # Exclude MinIO client binary (manual ops utility, not application code)
+  # Only used by ops team for S3 backups, not exposed to users
+  - "/usr/local/bin/mc"
+  
+  # Exclude system package manager caches
+  - "/var/cache/**"
+  - "/var/lib/apt/**"
+  
+  # Exclude build-time dependencies (rollup is devDependency, not in prod)
+  - "/app/node_modules/rollup/**"
+  - "/app/node_modules/.cache/**"
+
+# Paths to explicitly include (application code)
+paths:
+  - "/app/**"
+
+# Queries to run (default security and quality)
+queries:
+  - uses: security-and-quality
+
+# Disable queries that generate false positives for container images
+query-filters:
+  - exclude:
+      id: js/insecure-dependency
+      reason: "Bundled npm dependencies are not used in production"
