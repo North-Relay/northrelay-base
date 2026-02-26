@@ -1,0 +1,80 @@
+# Trivy Configuration for NorthRelay Base Images
+# Ignore vulnerabilities that are false positives or acceptable risks
+
+# IGNORE RULES FORMAT:
+# id: CVE-ID or package name
+# paths: File paths to ignore (glob patterns supported)
+# statement: Justification for ignoring
+
+vulnerabilities:
+  # ============================================================================
+  # npm (bundled with Node.js base image) - NOT USED IN PRODUCTION
+  # ============================================================================
+  # Context: npm is bundled with the Node.js Docker image but is NOT used in
+  # production. The application uses Next.js standalone output which does not
+  # include npm. These vulnerabilities only apply during Docker build time.
+  # ============================================================================
+  
+  - id: "*"
+    paths:
+      - "/usr/local/lib/node_modules/npm/**"
+      - "/usr/local/share/npm/**"
+    statement: "npm bundled with Node.js base image is not used in production. Next.js standalone output does not include npm."
+
+  # ============================================================================
+  # node-tar (npm dependency) - BUILD TIME ONLY
+  # ============================================================================
+  
+  - id: "GHSA-9p95-fxvg-qgq2"  # Arbitrary File Creation/Overwrite via insufficient symlink protection
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/*/tar/**"
+    statement: "node-tar is only used during npm install at build time, not exposed to user input in production."
+
+  - id: "GHSA-r628-mhmh-qjhw"  # Arbitrary File Creation/Overwrite on Windows
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/*/tar/**"
+    statement: "Production environment is Linux, Windows-specific vulnerability not applicable."
+
+  - id: "GHSA-qq89-hq3f-393p"  # Arbitrary File Creation/Overwrite due to insufficient absolute path sanitization
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/*/tar/**"
+    statement: "node-tar only processes trusted package.json during Docker build, not user-supplied archives."
+
+  - id: "GHSA-5955-9wpr-37jh"  # Arbitrary file write vulnerability
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/*/tar/**"
+    statement: "Not exposed to production runtime, only used during Docker image build."
+
+  # ============================================================================
+  # rollup (devDependency) - NOT IN PRODUCTION IMAGE
+  # ============================================================================
+  
+  - id: "GHSA-gcx4-mw62-g8wm"  # DOM Clobbering Gadget found in rollup bundled scripts
+    paths:
+      - "app/node_modules/rollup/**"
+    statement: "rollup is a devDependency only used during build. Not included in production Next.js standalone output."
+
+  # ============================================================================
+  # MinIO Client (mc) - LOW RISK MANUAL UTILITY
+  # ============================================================================
+  # Context: mc is a manual command-line utility for S3 operations, not exposed
+  # to user input. It's invoked by ops team via SSH for backups/restores.
+  # Attack surface is minimal: requires server access + S3 credentials.
+  # ============================================================================
+  
+  - id: "*"
+    paths:
+      - "usr/local/bin/mc"
+    statement: "MinIO client is a manual utility for S3 backups, not exposed to user input. Requires authenticated SSH access and S3 credentials. Low attack surface."
+
+# Go stdlib vulnerabilities in mc binary
+  - id: "CVE-*"
+    paths:
+      - "usr/local/bin/mc"
+    statement: "mc is latest available version (RELEASE.2025-08-13T08-35-41Z). Risk accepted: manual utility with limited attack surface."
+
+# Golang-specific CVEs
+  - id: "GHSA-*"
+    paths:
+      - "usr/local/bin/mc"
+    statement: "mc binary vulnerabilities are inherited from MinIO upstream. Using latest available version. Consider removing mc if not actively used for disaster recovery."
