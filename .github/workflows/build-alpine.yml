@@ -1,0 +1,236 @@
+# Build Base Images - Dual Distribution Strategy
+# =============================================================================
+# This workflow builds TWO versions of each base image:
+# 1. Debian slim (current, for compatibility)
+# 2. Alpine Linux (new, for security)
+#
+# Image Tags:
+# - builder-latest, runner-latest → Debian slim (default)
+# - builder-alpine-latest, runner-alpine-latest → Alpine (hardened)
+# - builder-YYYYMMDD, runner-YYYYMMDD → Dated Debian
+# - builder-alpine-YYYYMMDD, runner-alpine-YYYYMMDD → Dated Alpine
+#
+# Migration Strategy:
+# 1. Phase 1: Build both, deploy Debian (current)
+# 2. Phase 2: Test Alpine in staging
+# 3. Phase 3: Switch platform to Alpine (update Dockerfiles)
+# 4. Phase 4: Deprecate Debian builds
+# =============================================================================
+
+name: Build Base Images (Debian + Alpine)
+
+on:
+  repository_dispatch:
+    types: [deps-updated]
+  schedule:
+    - cron: '0 3 * * 0'  # Sundays at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual rebuild'
+        required: false
+      alpine_only:
+        description: 'Build Alpine only (skip Debian)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/north-relay/northrelay-base
+  PLATFORM_REPO: North-Relay/northrelay-platform
+
+jobs:
+  fetch-deps:
+    name: Fetch Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch platform files
+        env:
+          GH_TOKEN: ${{ secrets.PLATFORM_READ_TOKEN }}
+        run: |
+          for f in package.json package-lock.json; do
+            URL=$(gh api "repos/$PLATFORM_REPO/contents/$f" --jq '.download_url')
+            curl -sL "$URL" -o "$f"
+          done
+          mkdir -p prisma
+          URL=$(gh api "repos/$PLATFORM_REPO/contents/prisma/schema.prisma" --jq '.download_url')
+          curl -sL "$URL" -o prisma/schema.prisma
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-deps
+          path: |
+            package.json
+            package-lock.json
+            prisma/schema.prisma
+
+  build-debian-builder:
+    name: Build Builder (Debian)
+    if: github.event.inputs.alpine_only != 'true'
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=builder-latest
+            type=raw,value=builder-{{date 'YYYYMMDD'}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.builder
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=debian-builder
+          cache-to: type=gha,mode=max,scope=debian-builder
+
+  build-debian-runner:
+    name: Build Runner (Debian)
+    if: github.event.inputs.alpine_only != 'true'
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=runner-latest
+            type=raw,value=runner-{{date 'YYYYMMDD'}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runner
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=debian-runner
+          cache-to: type=gha,mode=max,scope=debian-runner
+
+  build-alpine-builder:
+    name: Build Builder (Alpine)
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=builder-alpine-latest
+            type=raw,value=builder-alpine-{{date 'YYYYMMDD'}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.builder.alpine
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=alpine-builder
+          cache-to: type=gha,mode=max,scope=alpine-builder
+
+  build-alpine-runner:
+    name: Build Runner (Alpine)
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=runner-alpine-latest
+            type=raw,value=runner-alpine-{{date 'YYYYMMDD'}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runner.alpine
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=alpine-runner
+          cache-to: type=gha,mode=max,scope=alpine-runner
+
+  scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-alpine-builder, build-alpine-runner]
+    permissions:
+      security-events: write
+    strategy:
+      matrix:
+        image:
+          - builder-alpine-latest
+          - runner-alpine-latest
+    steps:
+      - uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ matrix.image }}'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.image }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.image }}.sarif'
