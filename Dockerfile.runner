@@ -22,13 +22,21 @@
 FROM node:22-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
 
 # Install runtime OS dependencies (single layer)
+# NOTE: MinIO mc sha256 is verified against MinIO's own CDN (same-origin check).
+# For stronger supply-chain assurance, pin MC_SHA256 to a hardcoded value from
+# https://github.com/minio/mc/releases after verifying the binary out-of-band.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        openssl wget postgresql-client curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc \
-       -o /usr/local/bin/mc \
-    && chmod +x /usr/local/bin/mc
+       -o /tmp/mc \
+    && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc.sha256sum \
+       -o /tmp/mc.sha256sum \
+    && EXPECTED_SHA256=$(awk '{print $1}' /tmp/mc.sha256sum) \
+    && echo "$EXPECTED_SHA256  /tmp/mc" | sha256sum -c \
+    && install -o root -g root -m 0755 /tmp/mc /usr/local/bin/mc \
+    && rm -f /tmp/mc /tmp/mc.sha256sum
 
 WORKDIR /app
 
