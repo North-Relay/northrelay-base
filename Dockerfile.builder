@@ -6,7 +6,7 @@
 # Published to: ghcr.io/north-relay/northrelay-base:builder-<tag>
 #
 # This image contains:
-#   - Node.js 20 (Debian slim, pinned by digest)
+#   - Node.js 22 LTS (Debian slim, pinned by digest)
 #   - OpenSSL (for Prisma)
 #   - All npm dependencies (production + dev)
 #   - Generated Prisma client
@@ -17,8 +17,8 @@
 #   RUN npm run build
 # =============================================================================
 
-# Pin to specific digest for reproducibility
-FROM node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb
+# Pin to specific digest for reproducibility (node:22-slim)
+FROM node:22-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
 
 # Install build-time OS dependencies
 RUN apt-get update \
