@@ -21,14 +21,20 @@
 # Pin to specific digest for reproducibility (node:22-slim, same as builder)
 FROM node:22-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
 
+# MinIO mc version and hardcoded SHA256 (verified out-of-band from minio/mc releases)
+ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
+ARG MC_SHA256=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891
+
 # Install runtime OS dependencies (single layer)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        openssl wget postgresql-client curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc \
-       -o /usr/local/bin/mc \
-    && chmod +x /usr/local/bin/mc
+    && curl -fsSL "https://dl.min.io/client/mc/release/linux-amd64/archive/mc.${MC_VERSION}" \
+       -o /tmp/mc \
+    && echo "${MC_SHA256}  /tmp/mc" | sha256sum -c \
+    && install -o root -g root -m 0755 /tmp/mc /usr/local/bin/mc \
+    && rm -f /tmp/mc
 
 WORKDIR /app
 
