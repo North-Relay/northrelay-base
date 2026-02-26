@@ -1,0 +1,163 @@
+name: Build Base Images
+
+on:
+  repository_dispatch:
+    types: [deps-updated]
+  schedule:
+    # Weekly rebuild for security patches (Sundays at 03:00 UTC)
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual rebuild'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ghcr.io/north-relay/northrelay-base
+  PLATFORM_REPO: North-Relay/northrelay-platform
+
+jobs:
+  fetch-deps:
+    name: Fetch Dependencies from Platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base repo
+        uses: actions/checkout@v4
+
+      - name: Fetch platform dependency files
+        env:
+          GH_TOKEN: ${{ secrets.PLATFORM_READ_TOKEN }}
+        run: |
+          # Fetch package.json and package-lock.json via download_url (handles large files)
+          for f in package.json package-lock.json; do
+            URL=$(gh api repos/${{ env.PLATFORM_REPO }}/contents/$f --jq '.download_url')
+            curl -sL "$URL" -o "$f"
+            echo "Fetched $f ($(wc -c < "$f") bytes)"
+          done
+
+          # Fetch Prisma schema
+          mkdir -p prisma
+          URL=$(gh api repos/${{ env.PLATFORM_REPO }}/contents/prisma/schema.prisma --jq '.download_url')
+          curl -sL "$URL" -o prisma/schema.prisma
+          echo "Fetched prisma/schema.prisma"
+
+      - name: Upload dependency artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-deps
+          path: |
+            package.json
+            package-lock.json
+            prisma/schema.prisma
+
+  build-builder:
+    name: Build Builder Image
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download dependency artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=builder-latest
+            type=raw,value=builder-{{date 'YYYYMMDD'}}
+
+      - name: Build and push builder image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.builder
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=builder
+          cache-to: type=gha,mode=max,scope=builder
+
+  build-runner:
+    name: Build Runner Image
+    runs-on: ubuntu-latest
+    needs: fetch-deps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download dependency artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: platform-deps
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=runner-latest
+            type=raw,value=runner-{{date 'YYYYMMDD'}}
+
+      - name: Build and push runner image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.runner
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+  scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-builder, build-runner]
+    strategy:
+      matrix:
+        image: [builder-latest, runner-latest]
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:${{ matrix.image }}'
+          format: 'sarif'
+          output: 'trivy-${{ matrix.image }}.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-${{ matrix.image }}.sarif'

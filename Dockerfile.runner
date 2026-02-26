@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# NorthRelay Base Runner Image
+# =============================================================================
+# Minimal runtime image with system packages and runtime-only npm modules.
+# Published to: ghcr.io/north-relay/northrelay-base:runner-<tag>
+#
+# This image contains:
+#   - Node.js 20 (Debian slim, pinned by digest)
+#   - System packages: openssl, wget, postgresql-client, curl, ca-certificates
+#   - MinIO client (mc)
+#   - Runtime npm packages: mjml, bullmq, ioredis, tsx (exact versions)
+#   - Non-root user: nextjs:nodejs (1001:1001)
+#
+# Usage in application Dockerfile:
+#   FROM ghcr.io/north-relay/northrelay-base:runner-latest AS runner
+#   COPY --from=builder /app/.next/standalone ./
+#   CMD ["node", "server.js"]
+# =============================================================================
+
+# Pin to specific digest for reproducibility (same as builder)
+FROM node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb
+
+# Install runtime OS dependencies (single layer)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       openssl wget postgresql-client curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc \
+       -o /usr/local/bin/mc \
+    && chmod +x /usr/local/bin/mc
+
+WORKDIR /app
+
+# Copy package files for governed runtime installs
+COPY package.json package-lock.json ./
+
+# Install ONLY the runtime packages not included in Next.js standalone output.
+# Pinned to exact versions (no carets) since these are not governed by lockfile.
+# - mjml: Email template compilation (v5 async API, matches codebase)
+# - bullmq + ioredis: Redis job queue for email workers
+# - tsx: TypeScript execution for worker scripts
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --omit=dev --no-save \
+    mjml@5.0.0-alpha.11 \
+    bullmq@5.68.0 \
+    ioredis@5.9.3 \
+    tsx@4.19.2
+
+# Create non-root user
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs nextjs
+
+# Set runtime environment
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"

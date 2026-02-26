@@ -1,0 +1,1496 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  type              String
+  provider          String
+  refreshToken      String? @map("refresh_token")
+  accessToken       String? @map("access_token")
+  expiresAt         Int?    @map("expires_at")
+  tokenType         String? @map("token_type")
+  scope             String?
+  idToken           String? @map("id_token")
+  sessionState      String? @map("session_state")
+  providerAccountId String  @map("provider_account_id")
+  userId            String  @map("user_id")
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  expires      DateTime
+  sessionToken String   @unique @map("session_token")
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model User {
+  id                      String       @id @default(cuid())
+  name                    String?
+  email                   String       @unique
+  emailVerified           DateTime?
+  passwordHash            String?
+  image                   String?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime
+  quotaLimit              Int          @default(3000)
+  quotaUsed               Int          @default(0)
+  quotaResetAt            DateTime     @default(now())
+  poolType                PoolType     @default(Shared)
+  planTier                PlanTier     @default(Sandbox)
+  role                    user_role    @default(USER)
+  accountType             account_type @default(USER) @map("account_type")
+  status                  user_status  @default(ACTIVE)
+  suspendReason           String?
+  suspendedAt             DateTime?    @map("suspended_at")
+  verificationCode        String?      @map("verification_code")
+  verificationCodeExpires DateTime?    @map("verification_code_expires")
+  verificationToken       String?      @map("verification_token")
+  company                 String?
+  stripeCustomerId        String?      @map("stripe_customer_id")
+  stripeSubscriptionId    String?      @map("stripe_subscription_id")
+  stripePaymentMethodId   String?      @map("stripe_payment_method_id")
+
+  // User settings (added for settings page)
+  timezone              String    @default("UTC")
+  totpSecret            String?   @map("totp_secret")
+  totpEnabled           Boolean   @default(false) @map("totp_enabled")
+  totpBackupCodes       String[]  @map("totp_backup_codes")
+  totpVerifiedAt        DateTime? @map("totp_verified_at")
+  notifyDeliveryReports Boolean   @default(true) @map("notify_delivery_reports")
+  notifyBounceAlerts    Boolean   @default(true) @map("notify_bounce_alerts")
+  notifyBillingUpdates  Boolean   @default(true) @map("notify_billing_updates")
+  notifyProductUpdates  Boolean   @default(false) @map("notify_product_updates")
+  templateDefaults      Json?     @map("template_defaults")
+
+  // Soft delete support (Issue #278)
+  deletedAt DateTime? @map("deleted_at")
+
+  abuseReports    AbuseReport[]
+  accounts        Account[]
+  apiKeys         ApiKey[]
+  auditLogs       AuditLog[]
+  domains         Domain[]
+  emailEvents     EmailEvent[]
+  emails          Email[]
+  emailBatches    EmailBatch[]
+  invoices        Invoice[]
+  mailboxes       Mailbox[]
+  mailboxAliases  MailboxAlias[]
+  reputationScore ReputationScore?
+  scheduledEmails ScheduledEmail[]
+  sessions        Session[]
+  suppressions    Suppression[]
+  templates       Template[]
+  webhooks        Webhook[]
+
+  inboxSettings     InboxSettings?
+  suppressionGroups SuppressionGroup[]
+  dedicatedIps      DedicatedIp[]
+  ipPools           IpPool[]
+  subusers          Subuser[]
+  revokedTokens     RevokedToken[]
+  brandThemes       BrandTheme[]
+  contacts          Contact[]
+  inboxUsers        InboxUser[] // Inbox mailbox accounts managed by this user
+
+  // Campaign system relations
+  campaigns         Campaign[]
+  campaignsApproved Campaign[]    @relation(name: "CampaignApprover")
+  contactLists      ContactList[]
+  contactListsOwned ContactList[] @relation(name: "ListOwner")
+
+  // Addons
+  domainAddons DomainAddon[]
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model InboxSettings {
+  id     String @id @default(cuid())
+  userId String @unique @map("user_id")
+
+  // General settings
+  signature    String? @db.Text
+  showImages   Boolean @default(true) @map("show_images")
+  autoArchive  Boolean @default(false) @map("auto_archive")
+  replyFormat  String  @default("inline") // "inline" | "bottom"
+  previewLines Int     @default(2) @map("preview_lines")
+
+  // JSON fields for flexibility
+  notifications Json? @db.JsonB // All notification settings
+  security      Json? @db.JsonB // 2FA, TLS, session settings
+  appearance    Json? @db.JsonB // Theme, density, animations
+  filters       Json? @db.JsonB // Sieve filter rules
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("inbox_settings")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  name       String
+  active     Boolean   @default(true)
+  isRevoked  Boolean   @default(false) @map("is_revoked")
+  revokedAt  DateTime? @map("revoked_at")
+  revokedBy  String?   @map("revoked_by")
+  banReason  String?   @map("ban_reason")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime? @map("expires_at")
+  keyHash    String    @unique @map("key_hash")
+  keyPrefix  String    @map("key_prefix")
+  bcryptHash String?   @map("bcrypt_hash")
+  lastUsedAt DateTime? @map("last_used_at")
+  usageCount Int       @default(0) @map("usage_count")
+  scopes     Json?
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([keyHash])
+  @@index([userId])
+  @@map("api_keys")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  location  String?
+  status    String
+  metadata  Json?
+  timestamp DateTime @default(now())
+  ipAddress String?  @default("unknown") @map("ip_address")
+  userAgent String?  @map("user_agent")
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([action])
+  @@index([timestamp])
+  @@index([userId])
+  @@index([userId, action, timestamp]) // Composite for admin filtering
+  @@index([timestamp, action]) // Time-based action queries
+  @@map("audit_logs")
+}
+
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  adminEmail   String
+  action       String
+  targetUserId String?
+  details      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([adminEmail])
+  @@index([action])
+  @@index([createdAt])
+  @@index([targetUserId])
+  @@map("admin_audit_logs")
+}
+
+model Domain {
+  id                String         @id @default(cuid())
+  userId            String
+  hostname          String
+  domainType        DomainType     @default(CUSTOM)
+  verified          Boolean        @default(false)
+  isSystemDomain    Boolean        @default(false) @map("is_system_domain")
+  isManagedDomain   Boolean        @default(false) // NorthRelay controls DNS (e.g., subdomains of vault-lab.ca)
+  parentDomain      String?
+  subdomain         String?
+  dnsStatus         Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime
+  verificationToken String?
+  verifiedAt        DateTime?
+  dnsRecords        Json?
+  verificationType  String?        @default("domain")
+  isInboxHosted     Boolean        @default(false) @map("is_inbox_hosted")
+  mxVerified        Boolean        @default(false) @map("mx_verified")
+  mxVerifiedAt      DateTime?      @map("mx_verified_at")
+  mxCheckedAt       DateTime?      @map("mx_checked_at")
+  catchAllEnabled   Boolean        @default(false) @map("catch_all_enabled")
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailboxes         Mailbox[]
+  aliases           MailboxAlias[]
+  addons            DomainAddon[]
+  inboxUsers        InboxUser[]    // Inbox mailbox accounts on this domain
+
+  @@unique([userId, hostname])
+  @@index([userId])
+  @@index([domainType])
+  @@index([parentDomain])
+  @@map("domains")
+}
+
+model SystemDomain {
+  id            String   @id @default(cuid())
+  domain        String   @unique
+  poolType      PoolType @map("pool_type")
+  isActive      Boolean  @default(true)
+  dkimSelector  String   @default("default")
+  dkimPublicKey String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([domain])
+  @@index([poolType])
+  @@map("system_domains")
+}
+
+// ============================================================================
+// SUBDOMAIN POOL - Pre-defined themed subdomains (1 subdomain = 1 user)
+// ============================================================================
+
+model SubdomainSlot {
+  id             String    @id @default(cuid())
+  subdomain      String    // The themed name (e.g., "alpha", "nova", "stellar")
+  parentDomain   String    @map("parent_domain") // e.g., "home-lab.email"
+  category       String    // Theme category: "cosmic", "tech", "nature", "elements"
+  isAssigned     Boolean   @default(false) @map("is_assigned")
+  assignedUserId String?   @map("assigned_user_id")
+  assignedAt     DateTime? @map("assigned_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@unique([subdomain, parentDomain]) // Each subdomain unique per parent domain
+  @@index([parentDomain, isAssigned]) // Fast lookup for available slots
+  @@index([assignedUserId])
+  @@index([category])
+  @@map("subdomain_slots")
+}
+
+model Mailbox {
+  id             String    @id @default(cuid())
+  prefix         String
+  userId         String    @map("user_id")
+  domainId       String    @map("domain_id")
+  isRelayEnabled Boolean   @default(true) @map("is_relay_enabled")
+  isInboxEnabled Boolean   @default(false) @map("is_inbox_enabled")
+  quotaBytes     BigInt    @default(1073741824) @map("quota_bytes")
+  dailySendLimit Int       @default(100) @map("daily_send_limit")
+  lastUsedAt     DateTime? @map("last_used_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  domain         Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([prefix, domainId])
+  @@index([userId])
+  @@index([domainId])
+  @@map("mailboxes")
+}
+
+model MailboxAlias {
+  id        String   @id @default(cuid())
+  alias     String   @unique // Full email: hello@company.com
+  prefix    String // Local part: hello
+  userId    String   @map("user_id")
+  domainId  String   @map("domain_id")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([domainId])
+  @@index([active])
+  @@map("mailbox_aliases")
+}
+
+// ============================================================================
+// INBOX USERS - Separate mail accounts on customer domains (not dashboard users)
+// ============================================================================
+
+model InboxUser {
+  id String @id @default(cuid())
+
+  // Ownership - Dashboard user who manages this inbox
+  ownerId  String @map("owner_id")
+  domainId String @map("domain_id")
+
+  // Email identity
+  email       String  @unique // Full email: hello@memoryrelay.ai
+  localPart   String  @map("local_part") // Local part: hello
+  displayName String? @map("display_name") // Display name: "Hello Support"
+
+  // Authentication (Stalwart SQL Directory)
+  passwordHash String @map("password_hash") // Bcrypt hash
+
+  // Sender configuration (flexible email sending)
+  allowedUsernames  String[]  @default([]) @map("allowed_usernames")  // Empty array = wildcard (any username)
+  allowedDomainIds  String[]  @default([]) @map("allowed_domain_ids") // Empty array = all owner's verified domains
+  stalwartPrincipalId String? @unique @map("stalwart_principal_id")   // Stalwart principal ID
+
+  // Quotas & Limits
+  quotaBytes     BigInt @default(1073741824) @map("quota_bytes") // 1GB default
+  usedBytes      BigInt @default(0) @map("used_bytes") // Current usage
+  dailySendLimit Int    @default(100) @map("daily_send_limit") // Outbound limit
+  dailySentCount Int    @default(0) @map("daily_sent_count") // Today's count
+
+  // Status
+  status            InboxUserStatus @default(ACTIVE)
+  mustChangePassword Boolean         @default(false) @map("must_change_password")
+  lastLoginAt       DateTime?       @map("last_login_at")
+  lastSentAt        DateTime?       @map("last_sent_at")
+
+  // Metadata
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  owner   User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  domain  Domain         @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  aliases InboxUserAlias[]
+
+  @@index([ownerId])
+  @@index([domainId])
+  @@index([email])
+  @@index([status])
+  @@map("inbox_users")
+}
+
+model InboxUserAlias {
+  id          String   @id @default(cuid())
+  inboxUserId String   @map("inbox_user_id")
+  alias       String   @unique // Full alias: sales@memoryrelay.ai
+  localPart   String   @map("local_part") // Local part: sales
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  inboxUser InboxUser @relation(fields: [inboxUserId], references: [id], onDelete: Cascade)
+
+  @@index([inboxUserId])
+  @@index([active])
+  @@map("inbox_user_aliases")
+}
+
+model Email {
+  id            String       @id @default(cuid())
+  messageId     String       @unique @map("message_id")
+  userId        String       @map("user_id")
+  fromEmail     String       @map("from_email")
+  fromName      String?      @map("from_name")
+  toRecipients  Json         @map("to_recipients")
+  ccRecipients  Json?        @map("cc_recipients")
+  bccRecipients Json?        @map("bcc_recipients")
+  replyTo       Json?        @map("reply_to")
+  subject       String
+  htmlContent   String?      @map("html_content")
+  textContent   String?      @map("text_content")
+  attachments   Json?
+  status        email_status @default(Queued)
+  poolType      PoolType     @map("pool_type")
+  poolTier      PlanTier     @map("pool_tier")
+  categories    Json?
+  tags          Json?
+  queuedAt      DateTime     @default(now()) @map("queued_at")
+  sentAt        DateTime?    @map("sent_at")
+  deliveredAt   DateTime?    @map("delivered_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @map("updated_at")
+  batchId       String?      @map("batch_id")
+  emailEvents   EmailEvent[]
+  batch         EmailBatch?  @relation(fields: [batchId], references: [id])
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([messageId])
+  @@index([status])
+  @@index([userId])
+  @@index([batchId])
+  @@index([fromEmail]) // Search performance
+  @@index([subject]) // Search performance
+  @@index([userId, status]) // User email filtering
+  @@index([createdAt, status]) // Time-range queries
+  @@map("emails")
+}
+
+model EmailEvent {
+  id            String     @id @default(cuid())
+  emailId       String     @map("email_id")
+  messageId     String     @map("message_id")
+  eventType     event_type @map("event_type")
+  timestamp     DateTime   @default(now())
+  processedAt   DateTime   @default(now()) @map("processed_at")
+  recipient     String?
+  sender        String?
+  subject       String?
+  details       Json?
+  statusCode    String?    @map("status_code")
+  statusMessage String?    @map("status_message")
+  rawPayload    Json?      @map("raw_payload")
+  userId        String?    @map("user_id")
+  poolType      PoolType?  @map("pool_type")
+  queuedAt      DateTime?  @map("queued_at")
+  email         Email      @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  user          User?      @relation(fields: [userId], references: [id])
+
+  @@index([eventType])
+  @@index([messageId, eventType, timestamp])
+  @@index([messageId])
+  @@index([timestamp])
+  @@index([userId])
+  @@index([processedAt])
+  @@index([emailId, eventType]) // Event history per email
+  @@index([userId, eventType, timestamp]) // User event analytics
+  @@map("email_events")
+}
+
+model ScheduledEmail {
+  id           String           @id @default(cuid())
+  messageId    String           @unique @map("message_id")
+  userId       String           @map("user_id")
+  emailData    Json             @map("email_data")
+  scheduledFor DateTime         @map("scheduled_for")
+  status       scheduled_status @default(Pending)
+  sentAt       DateTime?        @map("sent_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @map("updated_at")
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledFor, status])
+  @@index([userId])
+  @@map("scheduled_emails")
+}
+
+model Suppression {
+  id        String             @id @default(cuid())
+  userId    String             @map("user_id")
+  email     String
+  reason    suppression_reason
+  details   Json?
+  createdAt DateTime           @default(now()) @map("created_at")
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([email])
+  @@index([userId])
+  @@map("suppressions")
+}
+
+enum TemplateCategory {
+  TRANSACTIONAL
+  AUTHENTICATION
+  NOTIFICATION
+  SECURITY
+  MARKETING
+  OTHER
+}
+
+model Template {
+  id                     String            @id @default(cuid())
+  userId                 String            @map("user_id")
+  name                   String
+  subject                String
+  htmlContent            String?           @map("html_content")
+  textContent            String?           @map("text_content")
+  version                Int               @default(1)
+  variables              Json?
+  extractedVariables     Json?             @map("extracted_variables")
+  variablesLastExtracted DateTime?         @map("variables_last_extracted")
+  testData               Json?             @map("test_data")
+  mjmlContent            String?           @map("mjml_content") @db.Text
+  category               TemplateCategory  @default(OTHER)
+  themeId                String?           @map("theme_id")
+  createdAt              DateTime          @default(now()) @map("created_at")
+  updatedAt              DateTime          @map("updated_at")
+  versions               TemplateVersion[]
+  theme                  BrandTheme?       @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  user                   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns              Campaign[]
+
+  @@unique([userId, name, version])
+  @@index([userId])
+  @@index([category])
+  @@index([themeId])
+  @@map("templates")
+}
+
+model TemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String   @map("template_id")
+  version     Int
+  userId      String   @map("user_id")
+  name        String
+  subject     String
+  htmlContent String?  @map("html_content")
+  textContent String?  @map("text_content")
+  variables   Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  template    Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@index([templateId])
+  @@map("template_versions")
+}
+
+model BrandTheme {
+  id             String     @id @default(cuid())
+  userId         String     @map("user_id")
+  name           String     @default("Default")
+  isDefault      Boolean    @default(false) @map("is_default")
+  primaryColor   String     @default("#0070f3") @map("primary_color")
+  secondaryColor String     @default("#1a1a1a") @map("secondary_color")
+  accentColor    String     @default("#00c2ff") @map("accent_color")
+  fontFamily     String     @default("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif") @map("font_family")
+  fontName       String     @default("System") @map("font_name")
+  logoUrl        String?    @map("logo_url")
+  companyName    String     @default("My Company") @map("company_name")
+  footerHtml     String?    @map("footer_html")
+  socialLinks    Json?      @map("social_links")
+  // Extended theme properties
+  bgColor        String     @default("#f8fafc") @map("bg_color")
+  cardBgColor    String     @default("#ffffff") @map("card_bg_color")
+  headingColor   String     @default("#0f172a") @map("heading_color")
+  textColor      String     @default("#475569") @map("text_color")
+  mutedColor     String     @default("#94a3b8") @map("muted_color")
+  borderRadius   String     @default("8px") @map("border_radius")
+  buttonRadius   String     @default("8px") @map("button_radius")
+  buttonStyle    String     @default("filled") @map("button_style")
+  designStyle    String     @default("default") @map("design_style")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @map("updated_at")
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates      Template[]
+  campaigns      Campaign[]
+
+  @@unique([userId, name])
+  @@map("brand_themes")
+}
+
+model Webhook {
+  id                       String            @id @default(cuid())
+  userId                   String            @map("user_id")
+  url                      String
+  events                   Json
+  description              String?
+  active                   Boolean           @default(true)
+  secretHash               String            @map("secret_hash")
+  secretPrefix             String            @map("secret_prefix")
+  previousSecretHash       String?           @map("previous_secret_hash")
+  previousSecretValidUntil DateTime?         @map("previous_secret_valid_until")
+  failureNotify            Boolean           @default(false) @map("failure_notify")
+  failureEmails            Json?             @map("failure_emails")
+  failureThreshold         Int               @default(5) @map("failure_threshold")
+  autoDisableAfter         Int               @default(0) @map("auto_disable_after")
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @map("updated_at")
+  webhookDeliveries        WebhookDelivery[]
+  user                     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("webhooks")
+}
+
+model WebhookDelivery {
+  id           String   @id @default(cuid())
+  webhookId    String   @map("webhook_id")
+  eventId      String?  @map("event_id")
+  deliveredAt  DateTime @default(now()) @map("delivered_at")
+  statusCode   Int      @map("status_code")
+  success      Boolean
+  retries      Int      @default(0)
+  responseTime Int?     @map("response_time")
+  errorMessage String?  @map("error_message")
+  webhook      Webhook  @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([deliveredAt])
+  @@index([webhookId])
+  @@map("webhook_deliveries")
+}
+
+model AbuseReport {
+  id            String              @id @default(cuid())
+  userId        String
+  reporterEmail String?
+  reportType    String
+  priority      AbuseReportPriority @default(LOW)
+  status        AbuseReportStatus   @default(OPEN)
+  subject       String?
+  description   String
+  evidence      Json?
+  sourceIp      String?
+  assignedTo    String?
+  resolution    String?
+  resolvedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes         AdminNote[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@map("abuse_reports")
+}
+
+model AdminNote {
+  id            String      @id @default(cuid())
+  adminEmail    String
+  content       String
+  isInternal    Boolean     @default(true)
+  abuseReportId String
+  createdAt     DateTime    @default(now())
+  abuseReport   AbuseReport @relation(fields: [abuseReportId], references: [id], onDelete: Cascade)
+
+  @@index([abuseReportId])
+  @@map("admin_notes")
+}
+
+model ReputationScore {
+  id              String               @id @default(cuid())
+  userId          String               @unique
+  score           Int                  @default(100)
+  trend           ReputationTrend      @default(STABLE)
+  pool            PoolType             @default(Shared)
+  bounceRate      Float                @default(0)
+  complaintRate   Float                @default(0)
+  volumeToday     Int                  @default(0)
+  volumeWeek      Int                  @default(0)
+  activeIncidents Int                  @default(0)
+  lastIncidentAt  DateTime?
+  calculatedAt    DateTime             @default(now())
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  history         ReputationHistory[]
+  incidents       ReputationIncident[]
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("reputation_scores")
+}
+
+model ReputationHistory {
+  id              String          @id @default(cuid())
+  reputationId    String
+  date            DateTime        @db.Date
+  score           Int
+  bounceRate      Float           @default(0)
+  complaintRate   Float           @default(0)
+  volume          Int             @default(0)
+  delta           Int             @default(0)
+  createdAt       DateTime        @default(now())
+  reputationScore ReputationScore @relation(fields: [reputationId], references: [id], onDelete: Cascade)
+
+  @@unique([reputationId, date])
+  @@index([reputationId, date])
+  @@map("reputation_history")
+}
+
+model ReputationIncident {
+  id              String           @id @default(cuid())
+  reputationId    String
+  type            String
+  severity        IncidentSeverity @default(WARNING)
+  impact          Int
+  description     String
+  resolved        Boolean          @default(false)
+  resolvedAt      DateTime?
+  resolution      String?
+  createdAt       DateTime         @default(now())
+  reputationScore ReputationScore  @relation(fields: [reputationId], references: [id], onDelete: Cascade)
+
+  @@index([reputationId])
+  @@index([resolved])
+  @@index([severity])
+  @@map("reputation_incidents")
+}
+
+model SystemAlert {
+  id             String    @id @default(cuid())
+  alertType      String    @map("alert_type")
+  severity       String
+  status         String    @default("Unread")
+  title          String
+  message        String
+  details        Json?
+  source         String
+  acknowledged   Boolean   @default(false)
+  acknowledgedBy String?   @map("acknowledged_by")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  resolvedAt     DateTime? @map("resolved_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([severity])
+  @@index([status])
+  @@index([acknowledged])
+  @@index([createdAt])
+  @@map("system_alerts")
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedBy String   @map("updated_by")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([key])
+  @@map("system_config")
+}
+
+model MaintenanceWindow {
+  id          String                    @id @default(cuid())
+  title       String
+  description String?
+  startTime   DateTime                  @map("start_time")
+  endTime     DateTime                  @map("end_time")
+  status      maintenance_window_status @default(Scheduled)
+  impactLevel String                    @default("Low") @map("impact_level")
+  createdBy   String                    @map("created_by")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  @@index([startTime])
+  @@index([status])
+  @@index([createdBy])
+  @@map("maintenance_windows")
+}
+
+model BackupLog {
+  id            String        @id @default(cuid())
+  backupType    String        @map("backup_type")
+  status        backup_status @default(Running)
+  sizeBytes     BigInt?       @map("size_bytes")
+  duration      Int?
+  location      String?
+  errorMessage  String?       @map("error_message")
+  triggeredBy   String        @map("triggered_by")
+  startedAt     DateTime      @default(now()) @map("started_at")
+  completedAt   DateTime?     @map("completed_at")
+  retentionDays Int           @default(90) @map("retention_days")
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([backupType])
+  @@map("backup_logs")
+}
+
+model AlertConfiguration {
+  id          String   @id @default(cuid())
+  alertType   String   @unique @map("alert_type")
+  enabled     Boolean  @default(true)
+  threshold   Json
+  severity    String   @default("Medium")
+  channels    Json     @default("[]")
+  recipients  Json     @default("[]")
+  description String?
+  updatedBy   String   @map("updated_by")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([enabled])
+  @@index([alertType])
+  @@map("alert_configurations")
+}
+
+model Invoice {
+  id              String         @id @default(cuid())
+  userId          String
+  amount          Decimal
+  currency        String         @default("CAD")
+  status          invoice_status @default(Pending)
+  pdfUrl          String?
+  periodStart     DateTime
+  periodEnd       DateTime
+  stripeInvoiceId String?
+  createdAt       DateTime       @default(now())
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([stripeInvoiceId])
+  @@map("invoices")
+}
+
+enum email_status {
+  Queued
+  Processing
+  Sent
+  Delivered
+  Bounced
+  Failed
+  Deferred
+
+  @@map("email_status")
+}
+
+enum event_type {
+  Queued
+  Processing
+  Sent
+  Delivered
+  Bounced
+  Deferred
+  Dropped
+  Opened
+  Clicked
+  SpamComplaint
+  Unsubscribed
+
+  @@map("event_type")
+}
+
+// Removed duplicate pool_type enum - using PoolType instead
+
+enum scheduled_status {
+  Pending
+  Sent
+  Cancelled
+  Failed
+
+  @@map("scheduled_status")
+}
+
+enum batch_status {
+  Pending
+  Processing
+  Completed
+  PartialFailure
+  Failed
+
+  @@map("batch_status")
+}
+
+model EmailBatch {
+  id           String       @id @default(cuid())
+  userId       String       @map("user_id")
+  status       batch_status @default(Pending)
+  totalCount   Int          @map("total_count")
+  sentCount    Int          @default(0) @map("sent_count")
+  failedCount  Int          @default(0) @map("failed_count")
+  scheduleMode String       @default("immediate") @map("schedule_mode")
+  metadata     Json?
+  createdAt    DateTime     @default(now()) @map("created_at")
+  completedAt  DateTime?    @map("completed_at")
+  emails       Email[]
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("email_batches")
+}
+
+enum suppression_reason {
+  Bounce
+  Complaint
+  Unsubscribe
+  Manual
+
+  @@map("suppression_reason")
+}
+
+enum PlanTier {
+  Sandbox
+  Micro
+  Startup
+  Scale
+  Enterprise
+
+  @@map("plan_tier")
+}
+
+enum PoolType {
+  Shared
+  Isolated
+  Dedicated
+
+  @@map("pool_type")
+}
+
+enum DomainType {
+  SYSTEM_SUBDOMAIN
+  CUSTOM
+  INFRASTRUCTURE
+
+  @@map("DomainType")
+}
+
+enum ReputationTrend {
+  STABLE
+  IMPROVING
+  DECLINING
+
+  @@map("ReputationTrend")
+}
+
+enum IncidentSeverity {
+  INFO
+  WARNING
+  CRITICAL
+
+  @@map("IncidentSeverity")
+}
+
+enum user_role {
+  USER        @map("User")
+  ADMIN       @map("Admin")
+  SUPER_ADMIN @map("SuperAdmin")
+
+  @@map("user_role")
+}
+
+enum account_type {
+  USER    @map("User")
+  SERVICE @map("Service")
+  SYSTEM  @map("System")
+
+  @@map("account_type")
+}
+
+enum user_status {
+  ACTIVE    @map("Active")
+  SUSPENDED @map("Suspended")
+  BANNED    @map("Banned")
+
+  @@map("user_status")
+}
+
+enum InboxUserStatus {
+  ACTIVE    @map("Active")
+  SUSPENDED @map("Suspended")
+  DELETED   @map("Deleted")
+
+  @@map("inbox_user_status")
+}
+
+enum AbuseReportStatus {
+  OPEN      @map("Open")
+  REVIEWING @map("Reviewing")
+  RESOLVED  @map("Resolved")
+  DISMISSED @map("Dismissed")
+
+  @@map("abuse_report_status")
+}
+
+enum AbuseReportPriority {
+  LOW      @map("Low")
+  MEDIUM   @map("Medium")
+  HIGH     @map("High")
+  CRITICAL @map("Critical")
+
+  @@map("abuse_report_priority")
+}
+
+enum invoice_status {
+  Pending
+  Paid
+  Failed
+  Refunded
+
+  @@map("invoice_status")
+}
+
+enum maintenance_window_status {
+  Scheduled
+  InProgress
+  Completed
+  Cancelled
+
+  @@map("maintenance_window_status")
+}
+
+enum backup_status {
+  Running
+  Completed
+  Failed
+  Cancelled
+
+  @@map("backup_status")
+}
+
+// =============================================================================
+// Unsubscribe / Suppression Groups (#114)
+// =============================================================================
+
+model SuppressionGroup {
+  id          String                   @id @default(cuid())
+  userId      String                   @map("user_id")
+  name        String
+  description String?
+  isDefault   Boolean                  @default(false) @map("is_default")
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members     SuppressionGroupMember[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("suppression_groups")
+}
+
+model SuppressionGroupMember {
+  id        String           @id @default(cuid())
+  groupId   String           @map("group_id")
+  email     String
+  createdAt DateTime         @default(now()) @map("created_at")
+  group     SuppressionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, email])
+  @@index([groupId])
+  @@index([email])
+  @@map("suppression_group_members")
+}
+
+// =============================================================================
+// IP Pools (#111)
+// =============================================================================
+
+model DedicatedIp {
+  id              String     @id @default(cuid())
+  userId          String     @map("user_id")
+  address         String     @unique
+  hostname        String?
+  warmup          Boolean    @default(false)
+  warmupStartedAt DateTime?  @map("warmup_started_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pools           IpPoolIp[]
+
+  @@index([userId])
+  @@map("dedicated_ips")
+}
+
+model IpPool {
+  id        String     @id @default(cuid())
+  userId    String     @map("user_id")
+  name      String
+  isDefault Boolean    @default(false) @map("is_default")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ips       IpPoolIp[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("ip_pools")
+}
+
+model IpPoolIp {
+  id     String      @id @default(cuid())
+  poolId String      @map("pool_id")
+  ipId   String      @map("ip_id")
+  pool   IpPool      @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  ip     DedicatedIp @relation(fields: [ipId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, ipId])
+  @@map("ip_pool_ips")
+}
+
+// =============================================================================
+// Subusers (#112)
+// =============================================================================
+
+enum subuser_status {
+  Active
+  Suspended
+
+  @@map("subuser_status")
+}
+
+model Subuser {
+  id          String         @id @default(cuid())
+  userId      String         @map("user_id")
+  username    String         @unique
+  email       String
+  status      subuser_status @default(Active)
+  permissions Json?
+  rateLimit   Int?           @map("rate_limit")
+  ipPoolId    String?        @map("ip_pool_id")
+  apiKeyHash  String?        @unique @map("api_key_hash")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subusers")
+}
+
+/// Blacklisted JWT tokens for session revocation
+model RevokedToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique /// JWT ID to blacklist
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at") /// Auto-cleanup after JWT expires
+  revokedAt DateTime @default(now()) @map("revoked_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("revoked_tokens")
+}
+
+// =============================================================================
+// Campaigns - Contacts & Lists (#230)
+// =============================================================================
+
+enum ContactSource {
+  MANUAL
+  CSV_IMPORT
+  API
+  FORM
+  SYNC
+
+  @@map("contact_source")
+}
+
+enum ContactStatus {
+  ACTIVE
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+  CLEANED
+
+  @@map("contact_status")
+}
+
+model Contact {
+  id                 String               @id @default(cuid())
+  userId             String               @map("user_id")
+  email              String
+  firstName          String?              @map("first_name")
+  lastName           String?              @map("last_name")
+  phone              String?
+  metadata           Json?
+  source             ContactSource
+  status             ContactStatus        @default(ACTIVE)
+  subscribedAt       DateTime             @default(now()) @map("subscribed_at")
+  unsubscribedAt     DateTime?            @map("unsubscribed_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags               ContactTag[]
+  customFields       ContactCustomField[]
+  listMemberships    ContactListMember[]
+  campaignEvents     CampaignEvent[]
+  campaignRecipients CampaignRecipient[]
+
+  @@unique([userId, email])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([userId, email])
+  @@map("contacts")
+}
+
+model ContactTag {
+  id        String  @id @default(cuid())
+  contactId String  @map("contact_id")
+  tag       String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tag])
+  @@index([tag])
+  @@map("contact_tags")
+}
+
+model ContactCustomField {
+  id        String  @id @default(cuid())
+  contactId String  @map("contact_id")
+  key       String
+  value     String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, key])
+  @@index([key, value])
+  @@map("contact_custom_fields")
+}
+
+// ============================================================================
+// Campaign System Models
+// ============================================================================
+
+model Campaign {
+  id                String         @id @default(cuid())
+  userId            String         @map("user_id")
+  name              String
+  subject           String
+  preheaderText     String?        @map("preheader_text")
+  fromName          String         @map("from_name")
+  fromEmail         String         @map("from_email")
+  replyTo           String?        @map("reply_to")
+  templateId        String?        @map("template_id")
+  htmlContent       String?        @map("html_content")
+  textContent       String?        @map("text_content")
+  themeId           String?        @map("theme_id")
+  templateVariables Json?          @map("template_variables")
+  status            CampaignStatus
+  approvalStatus    ApprovalStatus @default(DRAFT) @map("approval_status")
+  approvedBy        String?        @map("approved_by")
+  approvedAt        DateTime?      @map("approved_at")
+  reviewNotes       String?        @map("review_notes")
+  scheduledFor      DateTime?      @map("scheduled_for")
+  sentAt            DateTime?      @map("sent_at")
+  completedAt       DateTime?      @map("completed_at")
+  sendWindow        Json?          @map("send_window")
+  maxRecipients     Int?           @map("max_recipients")
+  estimatedCost     Decimal?       @map("estimated_cost")
+  abTestEnabled     Boolean        @default(false) @map("ab_test_enabled")
+  abTestConfig      Json?          @map("ab_test_config")
+  trackOpens        Boolean        @default(true) @map("track_opens")
+  trackClicks       Boolean        @default(true) @map("track_clicks")
+  totalRecipients   Int            @default(0) @map("total_recipients")
+  sentCount         Int            @default(0) @map("sent_count")
+  deliveredCount    Int            @default(0) @map("delivered_count")
+  openedCount       Int            @default(0) @map("opened_count")
+  clickedCount      Int            @default(0) @map("clicked_count")
+  bouncedCount      Int            @default(0) @map("bounced_count")
+  complainedCount   Int            @default(0) @map("complained_count")
+  unsubscribedCount Int            @default(0) @map("unsubscribed_count")
+  parentId          String?        @map("parent_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approver   User?               @relation(name: "CampaignApprover", fields: [approvedBy], references: [id], onDelete: SetNull)
+  template   Template?           @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  theme      BrandTheme?         @relation(fields: [themeId], references: [id], onDelete: SetNull)
+  parent     Campaign?           @relation(name: "ABTestVariant", fields: [parentId], references: [id], onDelete: SetNull)
+  variants   Campaign[]          @relation(name: "ABTestVariant")
+  recipients CampaignRecipient[]
+  events     CampaignEvent[]
+
+  @@index([userId, status, scheduledFor])
+  @@index([approvalStatus, userId])
+  @@index([parentId])
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PAUSED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model ContactList {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  ownerId      String    @map("owner_id")
+  name         String
+  description  String?
+  type         ListType
+  segmentRules Json?     @map("segment_rules")
+  contactCount Int       @default(0) @map("contact_count")
+  isArchived   Boolean   @default(false) @map("is_archived")
+  archivedAt   DateTime? @map("archived_at")
+  metadata     Json?
+  lastSyncedAt DateTime? @map("last_synced_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  owner     User                @relation(name: "ListOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members   ContactListMember[]
+  campaigns CampaignRecipient[]
+
+  @@unique([userId, name])
+  @@index([userId, isArchived])
+  @@index([type, userId])
+  @@index([ownerId])
+  @@map("contact_lists")
+}
+
+enum ListType {
+  STATIC
+  DYNAMIC
+}
+
+model ContactListMember {
+  id        String    @id @default(cuid())
+  contactId String    @map("contact_id")
+  listId    String    @map("list_id")
+  addedAt   DateTime  @default(now()) @map("added_at")
+  addedBy   String?   @map("added_by")
+  removedAt DateTime? @map("removed_at")
+  removedBy String?   @map("removed_by")
+
+  contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  list    ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, listId])
+  @@index([listId, removedAt])
+  @@map("contact_list_members")
+}
+
+model CampaignRecipient {
+  id          String                  @id @default(cuid())
+  campaignId  String                  @map("campaign_id")
+  listId      String?                 @map("list_id")
+  contactId   String?                 @map("contact_id")
+  excluded    Boolean                 @default(false)
+  status      CampaignRecipientStatus @default(PENDING)
+  sentAt      DateTime?               @map("sent_at")
+  deliveredAt DateTime?               @map("delivered_at")
+  openedAt    DateTime?               @map("opened_at")
+  clickedAt   DateTime?               @map("clicked_at")
+  bouncedAt   DateTime?               @map("bounced_at")
+
+  campaign Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  list     ContactList? @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact  Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, listId])
+  @@unique([campaignId, contactId])
+  @@index([status])
+  @@map("campaign_recipients")
+}
+
+model CampaignEvent {
+  id         String            @id @default(cuid())
+  campaignId String            @map("campaign_id")
+  contactId  String            @map("contact_id")
+  event      CampaignEventType
+  metadata   Json?
+  ipAddress  String?           @map("ip_address")
+  userAgent  String?           @map("user_agent")
+  occurredAt DateTime          @default(now()) @map("occurred_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact  Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, event])
+  @@index([contactId, occurredAt])
+  @@index([event, occurredAt])
+  @@map("campaign_events")
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+}
+
+enum CampaignEventType {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+}
+
+// ============================================
+// ADDON & SYSTEM SETTINGS MODELS
+// ============================================
+
+// Domain add-ons (e.g., inbox hosting)
+model DomainAddon {
+  id                   String      @id @default(cuid())
+  domainId             String      @map("domain_id")
+  userId               String      @map("user_id")
+  addonType            AddonType   @map("addon_type")
+  status               AddonStatus @default(ACTIVE)
+  pricePerMonth        Int         @default(1000) @map("price_per_month") // In cents ($10.00 = 1000)
+  stripeSubscriptionId String?     @map("stripe_subscription_id")
+  stripeItemId         String?     @map("stripe_item_id")
+  enabledAt            DateTime    @default(now()) @map("enabled_at")
+  cancelledAt          DateTime?   @map("cancelled_at")
+  expiresAt            DateTime?   @map("expires_at")
+  metadata             Json?
+
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([domainId, addonType])
+  @@index([userId])
+  @@index([status])
+  @@index([stripeSubscriptionId])
+  @@map("domain_addons")
+}
+
+enum AddonType {
+  INBOX_HOSTING
+  DEDICATED_IP
+  ADVANCED_ANALYTICS
+  CUSTOM_DKIM
+
+  @@map("addon_type")
+}
+
+enum AddonStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PENDING_PAYMENT
+
+  @@map("addon_status")
+}
+
+// Temporary storage for signup data during Stripe checkout
+// Password is stored as bcrypt hash (never plaintext/base64 in Stripe)
+// Tokens expire after 30 minutes and are deleted after use
+model PendingSignup {
+  id             String   @id @default(cuid())
+  token          String   @unique
+  email          String
+  passwordHash   String   @map("password_hash")
+  companyName    String   @map("company_name")
+  subdomain      String
+  selectedDomain String   @map("selected_domain")
+  planTier       String   @map("plan_tier")
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiresAt      DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("pending_signups")
+}
+
+// System-wide feature flags and settings
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  description String?
+  category    String   @default("general") // general, feature_flags, limits, maintenance
+  isPublic    Boolean  @default(false) @map("is_public") // Can be read by non-admins
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by") // Admin who last updated
+
+  @@index([category])
+  @@index([isPublic])
+  @@map("system_settings")
+}
+
