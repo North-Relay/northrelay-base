@@ -28,9 +28,9 @@
 # in production. The application uses Next.js standalone output which doesn't include npm.
 # =============================================================================
 
-# Pin to latest digest (verified 2026-02-26, built 2026-02-24)
-# Contains: Node.js v22.22.0, npm 10.9.4
-FROM node:22-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+# Pin to latest digest (verified 2026-03-19)
+# Contains: Node.js v22.x LTS
+FROM node:22-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d
 
 # Install build-time OS dependencies (minimal)
 RUN apt-get update \
@@ -69,5 +69,5 @@ LABEL org.opencontainers.image.description="Pre-compiled npm dependencies and Pr
 LABEL org.opencontainers.image.vendor="North-Relay"
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
 LABEL org.opencontainers.image.base.name="docker.io/library/node:22-slim"
-LABEL org.opencontainers.image.base.digest="sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94"
+LABEL org.opencontainers.image.base.digest="sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d"
 LABEL security.scan.note="npm vulnerabilities in /usr/local/lib/node_modules/npm/ are false positives (bundled with Node.js, not used in production)"
