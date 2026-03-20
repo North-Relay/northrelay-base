@@ -68,14 +68,14 @@ dismiss_alerts() {
 # Dismiss npm bundled dependencies
 dismiss_alerts \
   "usr/local/lib/node_modules/npm/" \
-  "wont_fix" \
+  "won't fix" \
   "npm is bundled with Node.js base image and NOT used in production. Next.js standalone output does not include npm. This vulnerability is not applicable." \
   "npm bundled dependencies"
 
 # Dismiss rollup (devDependency)
 dismiss_alerts \
   "rollup" \
-  "wont_fix" \
+  "won't fix" \
   "rollup is a devDependency used only during build. It is NOT included in the production Next.js standalone output. This vulnerability does not affect the runtime image." \
   "rollup build tool"
 
@@ -85,6 +85,13 @@ dismiss_alerts \
   "used_in_tests" \
   "MinIO mc is a manual command-line utility for S3 backups, not exposed to user input. Only invoked by ops team via SSH. Attack surface is minimal. Using latest version (RELEASE.2025-08-13T08-35-41Z). Risk accepted." \
   "MinIO mc binary"
+
+# Dismiss zlib OS-level alerts (Alpine base image hasn't released fix yet)
+dismiss_alerts \
+  "north-relay/northrelay-base" \
+  "won't fix" \
+  "zlib vulnerability is in the Alpine base image (node:22-alpine). Alpine 3.23 has not released zlib 1.3.2 yet. Will be resolved when Alpine publishes the fix and node:22-alpine is rebuilt. Not exploitable in our context." \
+  "Alpine zlib (pending upstream fix)"
 
 # Show remaining alerts
 echo "📊 Checking remaining open alerts..."
