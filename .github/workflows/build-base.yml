@@ -1,6 +1,8 @@
 name: Build Base Images
 
 on:
+  push:
+    branches: [main]
   repository_dispatch:
     types: [deps-updated]
   schedule:
