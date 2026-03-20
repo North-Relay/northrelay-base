@@ -20,6 +20,8 @@
 name: Build Base Images (Debian + Alpine)
 
 on:
+  push:
+    branches: [main]
   repository_dispatch:
     types: [deps-updated]
   schedule:
