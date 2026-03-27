@@ -9,6 +9,7 @@
 # - builder-alpine-latest, runner-alpine-latest → Alpine (hardened)
 # - builder-YYYYMMDD, runner-YYYYMMDD → Dated Debian
 # - builder-alpine-YYYYMMDD, runner-alpine-YYYYMMDD → Dated Alpine
+# - builder-alpine-v1.0.0, runner-alpine-v1.0.0 → Semver release
 #
 # Migration Strategy:
 # 1. Phase 1: Build both, deploy Debian (current)
@@ -48,17 +49,23 @@ jobs:
   fetch-deps:
     name: Fetch Dependencies
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read version
+        id: version
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Fetch platform files
         env:
           GH_TOKEN: ${{ secrets.PLATFORM_READ_TOKEN }}
         run: |
-          for f in package.json package-lock.json; do
+          for f in package.json package-lock.json .npmrc; do
             URL=$(gh api "repos/$PLATFORM_REPO/contents/$f" --jq '.download_url')
             curl -sL "$URL" -o "$f"
           done
@@ -74,6 +81,7 @@ jobs:
             package.json
             package-lock.json
             prisma/schema.prisma
+            .npmrc
 
   build-debian-builder:
     name: Build Builder (Debian)
@@ -101,6 +109,7 @@ jobs:
           tags: |
             type=raw,value=builder-latest
             type=raw,value=builder-{{date 'YYYYMMDD'}}
+            type=raw,value=builder-v${{ needs.fetch-deps.outputs.version }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -136,6 +145,7 @@ jobs:
           tags: |
             type=raw,value=runner-latest
             type=raw,value=runner-{{date 'YYYYMMDD'}}
+            type=raw,value=runner-v${{ needs.fetch-deps.outputs.version }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -170,6 +180,7 @@ jobs:
           tags: |
             type=raw,value=builder-alpine-latest
             type=raw,value=builder-alpine-{{date 'YYYYMMDD'}}
+            type=raw,value=builder-alpine-v${{ needs.fetch-deps.outputs.version }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -204,6 +215,7 @@ jobs:
           tags: |
             type=raw,value=runner-alpine-latest
             type=raw,value=runner-alpine-{{date 'YYYYMMDD'}}
+            type=raw,value=runner-alpine-v${{ needs.fetch-deps.outputs.version }}
       - uses: docker/build-push-action@v6
         with:
           context: .
