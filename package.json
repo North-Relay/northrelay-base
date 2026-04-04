@@ -128,7 +128,7 @@
     "imap": "0.8.17",
     "jsdom": "^27.4.0",
     "postcss": "^8.4.49",
-    "prisma": "^6.2.1",
+    "prisma": "^6.19.3",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "5.9.3",
