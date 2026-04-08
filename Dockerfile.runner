@@ -81,7 +81,7 @@ COPY package.json package-lock.json ./
 # NOTE: These versions are NOT governed by package-lock.json because they're
 # installed separately in the runner image. Keep them in sync with platform repo.
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --omit=dev --no-save --prefer-offline --no-audit --no-fund \
+    npm install --omit=dev --no-save --prefer-offline --no-audit --no-fund --legacy-peer-deps \
     mjml@5.0.0-alpha.11 \
     bullmq@5.70.1 \
     ioredis@5.9.3 \
