@@ -39,6 +39,9 @@
     "svgo": ">=4.0.1",
     "cheerio": {
       "undici": ">=6.24.0"
+    },
+    "next-auth": {
+      "nodemailer": "$nodemailer"
     }
   },
   "dependencies": {
