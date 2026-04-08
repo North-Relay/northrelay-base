@@ -30,7 +30,7 @@ FROM node:22-alpine
 ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
 
 # Install runtime dependencies (minimal)
-RUN apk upgrade --no-cache libexpat \
+RUN apk upgrade --no-cache \
     && apk add --no-cache \
     openssl \
     curl \

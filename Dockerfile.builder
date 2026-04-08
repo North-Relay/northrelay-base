@@ -33,7 +33,9 @@
 FROM node:22-slim@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d
 
 # Install build-time OS dependencies (minimal)
+# apt-get upgrade patches OpenSSL and other base image CVEs
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
        openssl \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
