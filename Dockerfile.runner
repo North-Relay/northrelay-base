@@ -46,7 +46,9 @@ ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
 ARG MC_SHA256=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891
 
 # Install runtime OS dependencies (minimal, single layer)
+# apt-get upgrade patches OpenSSL and other base image CVEs
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
        openssl \
        wget \
