@@ -50,7 +50,7 @@ COPY prisma/schema.prisma prisma/schema.prisma
 # Install ALL dependencies (production + dev) with BuildKit cache
 # Uses package-lock.json for reproducible builds
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline --no-audit --no-fund
+    npm ci --prefer-offline --no-audit --no-fund --legacy-peer-deps
 
 # Generate Prisma client (works offline, no database connection needed)
 RUN npx prisma generate
