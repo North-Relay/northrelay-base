@@ -1,0 +1,41 @@
+# Trivy ignore file for NorthRelay base images
+# =============================================================================
+# THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR ACCEPTED RISK IN THIS REPO.
+# It is consumed by two things:
+#   1. Trivy, via the `trivyignores:` input in .github/workflows/*.yml
+#   2. dismiss-false-positives.sh, which will ONLY dismiss a Code Scanning
+#      alert whose CVE is listed here.
+#
+# It replaces the old `.trivyignore`, which was dead weight twice over:
+#   - it held YAML but used the plain-text filename, so Trivy parsed each line
+#     as a literal vulnerability ID and matched nothing;
+#   - the scan jobs never checked out the repo and never passed `trivyignores`,
+#     so the file was not even on disk during a scan.
+#
+# ENTRY FORMAT
+# ------------
+#   - id: CVE-2023-45853          # exact ID; Trivy does NOT expand globs here
+#     # severity_ack: true        # REQUIRED to auto-dismiss a critical/high.
+#                                 # A comment on purpose — Trivy ignores it,
+#                                 # dismiss-false-positives.sh reads it.
+#     statement: >-
+#       Why this is accepted, who decided, and what would change the decision.
+#
+# RULES
+# -----
+#   - No `id: "*"`, no `CVE-*`, no `GHSA-*`. Trivy matches IDs exactly, so those
+#     entries never did anything; worse, they read as blanket suppression.
+#   - `paths:` only helps for filesystem scans. These workflows scan *images*,
+#     where Trivy reports OS/language packages and the SARIF location is the
+#     image reference — path scoping cannot discriminate between findings.
+#     Scope by CVE ID instead.
+#   - Every entry needs a statement that a reviewer can disagree with.
+#
+# CURRENT STATE: intentionally empty.
+# The previous acceptances (bundled npm, rollup, MinIO mc, Alpine zlib) were
+# expressed as path globs that never matched an image-scan finding, so none of
+# them were ever actually in force. Re-adding them as CVE IDs is a decision for
+# a human who can confirm the justification still holds — not something to port
+# over mechanically. Until then, findings stay visible.
+
+vulnerabilities: []

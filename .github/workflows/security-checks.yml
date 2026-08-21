@@ -1,0 +1,63 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alert-suppression:
+    name: Alert suppression guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Lint shell
+        run: |
+          shellcheck --severity=error dismiss-false-positives.sh \
+                                      tests/test-dismiss-false-positives.sh
+
+      - name: Dismissal script regression tests
+        run: bash tests/test-dismiss-false-positives.sh
+
+      - name: Ignore file is valid YAML and free of blanket globs
+        run: |
+          python3 -c "import yaml,sys; yaml.safe_load(open('.trivyignore.yaml'))"
+          # Trivy matches vulnerability IDs exactly. A glob is never a real
+          # ignore — it just reads like one to a human skimming the file.
+          if grep -nE '^\s*-\s*id:\s*"?([A-Z]*\*|\*)"?\s*$' .trivyignore.yaml; then
+            echo "::error::Blanket wildcard in .trivyignore.yaml — list explicit CVE IDs."
+            exit 1
+          fi
+          # A plain .trivyignore holding YAML parses as garbage line-by-line.
+          if [ -f .trivyignore ]; then
+            echo "::error::.trivyignore is superseded by .trivyignore.yaml — remove it."
+            exit 1
+          fi
+
+      - name: Actions are pinned to a commit SHA
+        run: |
+          # A moving ref (@v4, @master) in a workflow holding security-events:
+          # write lets an upstream compromise rewrite our scan results.
+          if grep -rnE 'uses:[^@]+@(v[0-9]+([.][0-9]+)*|master|main)\s*$' .github/workflows/; then
+            echo "::error::Unpinned action reference above — pin to a full commit SHA."
+            exit 1
+          fi
+          echo "All action references are SHA-pinned."
+
+      - name: Downloaded binaries are checksum-verified
+        run: |
+          # The Alpine runner fetched MinIO mc straight into /usr/local/bin with
+          # no verification while the Debian runner verified it. Keep them level.
+          status=0
+          for df in Dockerfile.runner Dockerfile.runner.alpine; do
+            if grep -qE '(wget|curl)[^|]*dl\.min\.io' "$df" && ! grep -q 'sha256sum -c' "$df"; then
+              echo "::error file=$df::Fetches mc without a sha256sum -c verification step."
+              status=1
+            fi
+          done
+          exit $status
