@@ -1,106 +1,114 @@
 #!/bin/bash
 # ==============================================================================
-# Dismiss False Positive CodeQL Alerts in northrelay-base
+# Dismiss ACCEPTED security alerts in northrelay-base
 # ==============================================================================
-# This script dismisses security alerts that are false positives.
-# Usage: ./dismiss-false-positives.sh [--dry-run]
+# Dismisses Code Scanning alerts whose CVE appears in .trivyignore.yaml — the
+# single, reviewed source of truth for accepted risk in this repo.
+#
+# Usage:
+#   ./dismiss-false-positives.sh              # dry run (default)
+#   ./dismiss-false-positives.sh --apply      # actually dismiss
+#
+# SAFETY MODEL
+# ------------
+# This script used to select alerts by substring-matching the alert's
+# `location.path`. For Trivy *container* scans that field is the image
+# reference — every alert on this repo reports the path
+# "north-relay/northrelay-base" — so the rule intended to silence one Alpine
+# zlib CVE matched all 683 open alerts, criticals included, and dismissed them
+# as "won't fix". GitHub treats "won't fix" as sticky, so nothing reopened.
+#
+# The rules are now:
+#   1. Allowlist, never pattern. Only CVEs written down in .trivyignore.yaml
+#      are eligible. An empty allowlist dismisses nothing.
+#   2. Match on rule.id (the CVE), not on a path that carries no per-alert
+#      information.
+#   3. Dry run unless --apply is passed explicitly.
+#   4. critical/high require an opt-in `# severity_ack: true` comment on the
+#      entry, so the blast radius of a careless line is bounded to low/medium.
+#      It is a YAML comment on purpose: Trivy never sees it, so the file stays
+#      a valid Trivy ignore file while carrying our extra gate.
 # ==============================================================================
 
 set -euo pipefail
 
 REPO="North-Relay/northrelay-base"
-DRY_RUN=false
+IGNORE_FILE="$(dirname "$0")/.trivyignore.yaml"
+APPLY=false
 
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=true
-  echo "🔍 DRY RUN MODE - No alerts will be dismissed"
-  echo ""
+for arg in "$@"; do
+  case "$arg" in
+    --apply)   APPLY=true ;;
+    --dry-run) APPLY=false ;;
+    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [[ ! -f "$IGNORE_FILE" ]]; then
+  echo "❌ Missing $IGNORE_FILE — nothing is accepted, so nothing can be dismissed." >&2
+  exit 1
 fi
 
-echo "📊 Fetching open Code Scanning alerts from $REPO..."
+# ------------------------------------------------------------------------------
+# Parse the allowlist: "- id: CVE-xxxx-nnnn" entries, plus an optional
+# "severity_ack: true" that must appear before the next "- id:" to count.
+# ------------------------------------------------------------------------------
+declare -A ALLOWED=()      # CVE -> "ack" | "noack"
+current=""
+while IFS= read -r line; do
+  if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*id:[[:space:]]*\"?([A-Za-z0-9]+-[0-9]+-[0-9A-Za-z-]+)\"?[[:space:]]*$ ]]; then
+    current="${BASH_REMATCH[1]}"
+    ALLOWED["$current"]="noack"
+  elif [[ -n "$current" && "$line" =~ ^[[:space:]]*#[[:space:]]*severity_ack:[[:space:]]*true[[:space:]]*$ ]]; then
+    ALLOWED["$current"]="ack"
+  fi
+done < "$IGNORE_FILE"
 
-# Get alerts as array
-ALERTS_JSON=$(gh api "repos/$REPO/code-scanning/alerts" --paginate)
-TOTAL=$(echo "$ALERTS_JSON" | jq 'length')
+if [[ ${#ALLOWED[@]} -eq 0 ]]; then
+  echo "✅ Allowlist is empty — no alert is eligible for dismissal."
+  echo "   Add a reviewed entry to $IGNORE_FILE to accept a specific CVE."
+  exit 0
+fi
 
-echo "Found $TOTAL total alerts"
+echo "📋 Allowlisted CVEs (${#ALLOWED[@]}): ${!ALLOWED[*]}"
+[[ "$APPLY" == "true" ]] || echo "🔍 DRY RUN — pass --apply to dismiss for real"
 echo ""
 
-# Function to dismiss alerts matching a pattern
-dismiss_alerts() {
-  local pattern="$1"
-  local reason="$2"
-  local comment="$3"
-  local label="$4"
-  
-  echo "🔧 Processing $label alerts..."
-  
-  local count=0
-  while IFS= read -r alert; do
-    local alert_num=$(echo "$alert" | jq -r '.number')
-    local location=$(echo "$alert" | jq -r '.most_recent_instance.location.path')
-    local state=$(echo "$alert" | jq -r '.state')
-    
-    if [[ "$state" != "open" ]]; then
-      continue
-    fi
-    
-    if [[ "$location" =~ $pattern ]]; then
-      count=$((count + 1))
-      
-      if [[ "$DRY_RUN" == "true" ]]; then
-        echo "  [DRY RUN] Would dismiss #$alert_num: $location"
-      else
-        gh api -X PATCH "repos/$REPO/code-scanning/alerts/$alert_num" \
-          -f state='dismissed' \
-          -f dismissed_reason="$reason" \
-          -f dismissed_comment="$comment" \
-          > /dev/null 2>&1
-        echo "  ✅ Dismissed #$alert_num: $location"
-      fi
-    fi
-  done < <(echo "$ALERTS_JSON" | jq -c '.[]')
-  
-  echo "  $label: $count alerts processed"
-  echo ""
-}
+echo "📊 Fetching open Code Scanning alerts from $REPO..."
+# gh merges top-level JSON arrays across pages, so this is a single array.
+ALERTS_JSON=$(gh api "repos/$REPO/code-scanning/alerts" --paginate)
 
-# Dismiss npm bundled dependencies
-dismiss_alerts \
-  "usr/local/lib/node_modules/npm/" \
-  "won't fix" \
-  "npm is bundled with Node.js base image and NOT used in production. Next.js standalone output does not include npm. This vulnerability is not applicable." \
-  "npm bundled dependencies"
+dismissed=0
+skipped_sev=0
+considered=0
 
-# Dismiss rollup (devDependency)
-dismiss_alerts \
-  "rollup" \
-  "won't fix" \
-  "rollup is a devDependency used only during build. It is NOT included in the production Next.js standalone output. This vulnerability does not affect the runtime image." \
-  "rollup build tool"
+while IFS=$'\t' read -r num rule_id severity state; do
+  [[ "$state" == "open" ]] || continue
+  [[ -n "${ALLOWED[$rule_id]:-}" ]] || continue
+  considered=$((considered + 1))
 
-# Dismiss MinIO mc binary
-dismiss_alerts \
-  "usr/local/bin/mc" \
-  "used_in_tests" \
-  "MinIO mc is a manual command-line utility for S3 backups, not exposed to user input. Only invoked by ops team via SSH. Attack surface is minimal. Using latest version (RELEASE.2025-08-13T08-35-41Z). Risk accepted." \
-  "MinIO mc binary"
+  # critical/high need an explicit acknowledgement on the allowlist entry.
+  if [[ "$severity" == "critical" || "$severity" == "high" ]] \
+     && [[ "${ALLOWED[$rule_id]}" != "ack" ]]; then
+    echo "  ⛔ #$num $rule_id ($severity) — allowlisted but no 'severity_ack: true'; leaving open"
+    skipped_sev=$((skipped_sev + 1))
+    continue
+  fi
 
-# Dismiss zlib OS-level alerts (Alpine base image hasn't released fix yet)
-dismiss_alerts \
-  "north-relay/northrelay-base" \
-  "won't fix" \
-  "zlib vulnerability is in the Alpine base image (node:22-alpine). Alpine 3.23 has not released zlib 1.3.2 yet. Will be resolved when Alpine publishes the fix and node:22-alpine is rebuilt. Not exploitable in our context." \
-  "Alpine zlib (pending upstream fix)"
+  if [[ "$APPLY" == "true" ]]; then
+    gh api -X PATCH "repos/$REPO/code-scanning/alerts/$num" \
+      -f state='dismissed' \
+      -f dismissed_reason='won'"'"'t fix' \
+      -f dismissed_comment="Accepted risk recorded in .trivyignore.yaml for $rule_id." >/dev/null
+    echo "  ✅ Dismissed #$num $rule_id ($severity)"
+  else
+    echo "  [DRY RUN] Would dismiss #$num $rule_id ($severity)"
+  fi
+  dismissed=$((dismissed + 1))
+done < <(echo "$ALERTS_JSON" | jq -r '.[] | [(.number|tostring), .rule.id, (.rule.security_severity_level // .rule.severity // "unknown"), .state] | @tsv')
 
-# Show remaining alerts
-echo "📊 Checking remaining open alerts..."
-REMAINING=$(gh api "repos/$REPO/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length')
+echo ""
+echo "📊 Matched allowlist: $considered | dismissed: $dismissed | held back for severity: $skipped_sev"
 
-if [[ $REMAINING -eq 0 ]]; then
-  echo "✅ All false positive alerts dismissed!"
-else
-  echo "⚠️  $REMAINING alerts still open (may require manual review):"
-  gh api "repos/$REPO/code-scanning/alerts" \
-    --jq '.[] | select(.state == "open") | "  #\(.number): \(.rule.severity) - \(.most_recent_instance.location.path)"'
-fi
+REMAINING=$(echo "$ALERTS_JSON" | jq '[.[] | select(.state == "open")] | length')
+echo "⚠️  $REMAINING alerts open before this run — anything not allowlisted stays open by design."

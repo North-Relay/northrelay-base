@@ -17,8 +17,11 @@
 #   RUN npm run build
 # =============================================================================
 
-# Pin to latest Alpine-based Node.js image
-FROM node:22-alpine
+# Pin by digest, not by floating tag. The Debian builder pins; this one only
+# claimed to, so "rebuild weekly for security patches" also meant "silently
+# change the base OS between builds with nothing recording which one shipped".
+# Resolved 2026-08-21 for node:22-alpine.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
 # Install build dependencies
 RUN apk upgrade --no-cache \
