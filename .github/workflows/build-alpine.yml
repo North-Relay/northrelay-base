@@ -61,17 +61,8 @@ jobs:
         id: version
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch platform files
-        env:
-          GH_TOKEN: ${{ secrets.PLATFORM_READ_TOKEN }}
-        run: |
-          for f in package.json package-lock.json .npmrc; do
-            URL=$(gh api "repos/$PLATFORM_REPO/contents/$f" --jq '.download_url')
-            curl -sL "$URL" -o "$f"
-          done
-          mkdir -p prisma
-          URL=$(gh api "repos/$PLATFORM_REPO/contents/prisma/schema.prisma" --jq '.download_url')
-          curl -sL "$URL" -o prisma/schema.prisma
+      # Build only the dependency files reviewed in this base-image commit.
+      # Sync platform dependency changes through a PR, never by floating fetch.
 
       - name: Upload artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

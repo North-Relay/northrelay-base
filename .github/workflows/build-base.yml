@@ -24,7 +24,7 @@ env:
 
 jobs:
   fetch-deps:
-    name: Fetch Dependencies from Platform
+    name: Prepare Reviewed Dependencies
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,23 +32,8 @@ jobs:
       - name: Checkout base repo
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Fetch platform dependency files
-        env:
-          GH_TOKEN: ${{ secrets.PLATFORM_READ_TOKEN }}
-          PLATFORM_REPO: ${{ env.PLATFORM_REPO }}
-        run: |
-          # Fetch package.json and package-lock.json via download_url (handles large files)
-          for f in package.json package-lock.json; do
-            URL=$(gh api "repos/$PLATFORM_REPO/contents/$f" --jq '.download_url')
-            curl -sL "$URL" -o "$f"
-            echo "Fetched $f ($(wc -c < "$f") bytes)"
-          done
-
-          # Fetch Prisma schema
-          mkdir -p prisma
-          URL=$(gh api "repos/$PLATFORM_REPO/contents/prisma/schema.prisma" --jq '.download_url')
-          curl -sL "$URL" -o prisma/schema.prisma
-          echo "Fetched prisma/schema.prisma"
+      # Build only the dependency files reviewed in this base-image commit.
+      # Sync platform dependency changes through a PR, never by floating fetch.
 
       - name: Upload dependency artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

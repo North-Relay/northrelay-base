@@ -8,7 +8,7 @@
 # Benefits over Debian slim:
 #   - 50% smaller image size (~100MB vs ~200MB)
 #   - musl libc instead of glibc (fewer CVEs)
-#   - No npm/node-tar vulnerabilities (Alpine uses different tarball)
+#   - npm and Go binaries require independent scans
 #   - Faster builds and pulls
 #
 # Usage in application Dockerfile:
@@ -57,7 +57,7 @@ ENV NODE_ENV=production
 
 # Metadata
 LABEL org.opencontainers.image.title="NorthRelay Base Builder (Alpine)"
-LABEL org.opencontainers.image.description="Alpine-based builder with zero known vulnerabilities"
+LABEL org.opencontainers.image.description="Alpine-based builder with locked dependencies requiring current image scans"
 LABEL org.opencontainers.image.vendor="North-Relay"
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
 LABEL org.opencontainers.image.base.name="docker.io/library/node:22-alpine"
