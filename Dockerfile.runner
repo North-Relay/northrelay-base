@@ -71,23 +71,10 @@ WORKDIR /app
 # Copy package files for governed runtime installs
 COPY package.json package-lock.json ./
 
-# Install ONLY the runtime packages not included in Next.js standalone output.
-# These are pinned to exact versions matching the application's requirements.
-#
-# Runtime dependencies breakdown:
-# - mjml@5.0.0-alpha.11: Email template compilation (v5 async API)
-# - bullmq@5.70.1: Redis job queue for background email workers
-# - ioredis@5.9.3: Redis client (dependency of bullmq)
-# - tsx@4.21.0: TypeScript execution for worker scripts
-#
-# NOTE: These versions are NOT governed by package-lock.json because they're
-# installed separately in the runner image. Keep them in sync with platform repo.
+# Install runtime dependencies from the same reviewed lockfile as the builder.
+# tsx is a runtime dependency for application workers.
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --omit=dev --no-save --prefer-offline --no-audit --no-fund --legacy-peer-deps \
-    mjml@5.0.0-alpha.11 \
-    bullmq@5.70.1 \
-    ioredis@5.9.3 \
-    tsx@4.21.0 \
+    npm ci --omit=dev --prefer-offline --no-audit --no-fund --legacy-peer-deps \
     # Clean up after install
     && npm cache clean --force \
     && rm -rf /tmp/* /var/tmp/* /root/.npm/_cacache
