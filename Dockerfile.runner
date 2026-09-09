@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Locked application dependencies and scanned tooling; see SECURITY.md.
-FROM golang:1.27@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fab AS mc-build
+FROM golang:1.27@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS mc-build
 WORKDIR /src
 RUN curl -fsSL https://codeload.github.com/minio/mc/tar.gz/77f82e18b5401a65958f1619df6ebb994634bd88 -o /tmp/mc.tar.gz \
     && echo '167415edd21bc29f5360943dac64272aa5cda0a39f3070b15cfeca671c43d975  /tmp/mc.tar.gz' | sha256sum -c - \
