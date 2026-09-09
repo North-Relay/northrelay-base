@@ -1,84 +1,36 @@
 # syntax=docker/dockerfile:1
-# =============================================================================
-# NorthRelay Base Runner Image - ALPINE (SECURITY HARDENED)
-# =============================================================================
-# Alpine Linux base with minimal attack surface and locked dependencies requiring current image scans.
-# Published to: ghcr.io/north-relay/northrelay-base:runner-alpine-<tag>
-#
-# Security improvements over Debian slim:
-#   - No glibc vulnerabilities
-#   - MinIO mc is a checksum-pinned Go binary requiring separate scanning
-#   - 60% smaller image size
-#   - Minimal OS packages
-#
-# This image contains:
-#   - Node.js 22 LTS (Alpine/musl)
-#   - MinIO client (Alpine build, latest)
-#   - Runtime npm packages: mjml, bullmq, ioredis, tsx
-#   - PostgreSQL client tools
-#
-# Usage in application Dockerfile:
-#   FROM ghcr.io/north-relay/northrelay-base:runner-alpine-latest AS runner
-#   COPY --from=builder /app/.next/standalone ./
-#   CMD ["node", "server.js"]
-# =============================================================================
+# Locked application dependencies and scanned tooling; see SECURITY.md.
+FROM golang:1.27@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS mc-build
+WORKDIR /src
+RUN curl -fsSL https://codeload.github.com/minio/mc/tar.gz/77f82e18b5401a65958f1619df6ebb994634bd88 -o /tmp/mc.tar.gz \
+    && echo '167415edd21bc29f5360943dac64272aa5cda0a39f3070b15cfeca671c43d975  /tmp/mc.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/mc.tar.gz --strip-components=1 -C /src
+COPY tools/mc/go.mod tools/mc/go.sum ./
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    go build -mod=readonly -trimpath -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2026-09-09T00:00:00Z -X github.com/minio/mc/cmd.CommitID=77f82e18b5401a65958f1619df6ebb994634bd88" -o /out/mc . \
+    && go list -mod=readonly -deps . > /out/mc-dependencies.txt \
+    && ! grep -q '^golang.org/x/crypto/openpgp' /out/mc-dependencies.txt
 
-# Pin by digest — see Dockerfile.builder.alpine for the rationale.
-# Resolved 2026-08-21 for node:22-alpine.
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
-
-# MinIO mc - statically linked Go binary, same artifact as the Debian runner.
-ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
-# Checksum of mc.${MC_VERSION} (linux-amd64), verified 2026-08-21 and identical
-# to the value Dockerfile.runner already pins. Without this the Alpine runner
-# installed whatever dl.min.io returned, into the image that runs production.
-# To update: curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/archive/mc.${MC_VERSION} | sha256sum
-ARG MC_SHA256=01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891
-
-# Install runtime dependencies (minimal)
-RUN apk upgrade --no-cache \
-    && apk add --no-cache \
-    openssl \
-    curl \
-    ca-certificates \
-    postgresql-client \
-    # Download MinIO client and verify it before it becomes executable
-    && wget -q "https://dl.min.io/client/mc/release/linux-amd64/archive/mc.${MC_VERSION}" -O /tmp/mc \
-    && echo "${MC_SHA256}  /tmp/mc" | sha256sum -c - \
-    && install -o root -g root -m 0755 /tmp/mc /usr/local/bin/mc \
-    && rm -f /tmp/mc \
-    && mc --version
-
-# Set working directory
+RUN apk upgrade --no-cache && apk add --no-cache openssl curl ca-certificates postgresql-client
 WORKDIR /app
-
-# Copy package files
 COPY package.json package-lock.json ./
-
-# Install runtime-only packages
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --prefer-offline --no-audit --no-fund --legacy-peer-deps \
-    && npm cache clean --force \
-    && rm -rf /tmp/* /var/tmp/*
+    && npm cache clean --force
+# Runtime jobs use Node directly; package managers are build-time tooling.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
+COPY --from=mc-build /out/mc /usr/local/bin/mc
+COPY tools/mc/LICENSE /usr/share/licenses/minio-mc/LICENSE
+COPY --from=mc-build /out/mc-dependencies.txt /usr/share/minio-mc/compiled-packages.txt
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
+ENV PORT=3000 HOSTNAME="0.0.0.0"
+USER nextjs
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs \
-    && adduser -S nextjs -u 1001 -G nodejs
-
-# Set environment
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-# Metadata
-LABEL org.opencontainers.image.title="NorthRelay Base Runner (Alpine)"
-LABEL org.opencontainers.image.description="Alpine-based runtime with locked dependencies requiring current image scans"
-LABEL org.opencontainers.image.vendor="North-Relay"
+ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
 LABEL org.opencontainers.image.base.name="docker.io/library/node:22-alpine"
-LABEL minio.mc.version="${MC_VERSION}"
-LABEL minio.mc.sha256="${MC_SHA256}"
-LABEL security.posture="hardened"
-LABEL security.base="alpine-musl"
-LABEL security.runtime.user="nextjs:nodejs (1001:1001)"
+LABEL org.opencontainers.image.base.digest="sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+LABEL minio.mc.source.revision="77f82e18b5401a65958f1619df6ebb994634bd88"

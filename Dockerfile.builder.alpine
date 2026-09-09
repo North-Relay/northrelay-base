@@ -1,65 +1,24 @@
 # syntax=docker/dockerfile:1
-# =============================================================================
-# NorthRelay Base Builder Image - ALPINE (SECURITY HARDENED)
-# =============================================================================
-# Alpine Linux base eliminates glibc vulnerabilities and reduces image size.
-# Published to: ghcr.io/north-relay/northrelay-base:builder-alpine-<tag>
-#
-# Benefits over Debian slim:
-#   - 50% smaller image size (~100MB vs ~200MB)
-#   - musl libc instead of glibc (fewer CVEs)
-#   - npm and Go binaries require independent scans
-#   - Faster builds and pulls
-#
-# Usage in application Dockerfile:
-#   FROM ghcr.io/north-relay/northrelay-base:builder-alpine-latest AS builder
-#   COPY . .
-#   RUN npm run build
-# =============================================================================
+# Locked application dependencies and scanned tooling; see SECURITY.md.
 
-# Pin by digest, not by floating tag. The Debian builder pins; this one only
-# claimed to, so "rebuild weekly for security patches" also meant "silently
-# change the base OS between builds with nothing recording which one shipped".
-# Resolved 2026-08-21 for node:22-alpine.
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
-
-# Install build dependencies
-RUN apk upgrade --no-cache \
-    && apk add --no-cache \
-    openssl \
-    python3 \
-    make \
-    g++
-
-# Set working directory
+RUN apk upgrade --no-cache && apk add --no-cache openssl python3 make g++
 WORKDIR /app
-
-# Copy dependency files
+# Replace Node's bundled npm with the separately reviewed maintenance release.
+COPY tools/npm/package.json tools/npm/package-lock.json /opt/build-npm/
+RUN npm ci --prefix /opt/build-npm --ignore-scripts --no-audit --no-fund \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    && ln -s /opt/build-npm/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /opt/build-npm/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 COPY package.json package-lock.json ./
-
-# Copy Prisma schema
 COPY prisma/schema.prisma prisma/schema.prisma
-
-# Install ALL dependencies with npm ci
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline --no-audit --no-fund --legacy-peer-deps
+    npm ci --prefer-offline --no-audit --no-fund --legacy-peer-deps \
+    && npx prisma generate \
+    && npm cache clean --force
 
-# Generate Prisma client
-RUN npx prisma generate
-
-# Clean up
-RUN npm cache clean --force \
-    && rm -rf /tmp/* /var/tmp/*
-
-# Set environment
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-
-# Metadata
-LABEL org.opencontainers.image.title="NorthRelay Base Builder (Alpine)"
-LABEL org.opencontainers.image.description="Alpine-based builder with locked dependencies requiring current image scans"
-LABEL org.opencontainers.image.vendor="North-Relay"
+ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
 LABEL org.opencontainers.image.base.name="docker.io/library/node:22-alpine"
-LABEL security.posture="hardened"
-LABEL security.base="alpine-musl"
+LABEL org.opencontainers.image.base.digest="sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"

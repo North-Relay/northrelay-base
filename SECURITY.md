@@ -1,70 +1,18 @@
-# Security triage for `northrelay-base`
+# Base-image security
+The committed package.json/package-lock.json and Prisma schema are the reviewed build inputs. CI never replaces them from another repository's moving branch. Builders also install npm 11.19.1 from the separate tools/npm lock; npm's bundled dependencies are audited independently.
+## Image tooling
+Version 2 uses Alpine for all maintained tags and pins the official Node 22 base by digest. Available Alpine OS updates are applied. Builder images retain the reviewed npm release for application builds. Runtime images remove npm, npx, Yarn and Corepack and run as UID 1001. Invoke runtime workers with Node directly, for example `node node_modules/tsx/dist/cli.mjs src/workers/email-worker.ts`.
+The runtime MinIO client remains available for backups. It is compiled from a checksum-verified, pinned source archive with the reviewed tools/mc module locks and a digest-pinned Go compiler. See tools/mc/README.md for provenance and maintenance.
+## Release verification
+A single build-base.yml workflow builds the builder and runner under all four published tag names on pull requests, main updates and weekly rebuilds. It runs actual image smoke tests and scans OS packages, application dependencies, package-manager internals and compiled Go dependencies at every severity.
+Every high/critical vulnerability blocks publication even without a published fix. Any other vulnerability with a published fixed version also blocks publication. Unfixed findings remain visible in full JSON/SARIF reports. Scanner failures and missing reports fail closed. No new ignores or alert dismissals are part of this remediation.
+All four variants must pass before publishing the exact saved image artifacts. Commit-SHA tags identify the verified build; latest, dated and version aliases point at that same image. The duplicate publisher was removed. The original SARIF categories are retained so fresh scans resolve the existing alerts.
+## Version 2 compatibility
+The default builder-latest and runner-latest tags now use Alpine/musl, matching the explicitly named Alpine tags. Old version 1 Debian tags are not overwritten and are no longer maintained; rebuild native dependencies for Alpine when migrating. Runner images no longer provide package managers and now enforce the existing nextjs user. Build/install dependencies in a builder stage. Operators needing a root maintenance operation must explicitly select the user for that operation.
+The current northrelay-platform Dockerfile builds from the official Node image with its own dependency lock and scan gate. Republishing these bases does not replace the running platform image.
+## Triage
+Review the complete scan artifact and the exact image revision. Do not label bundled tooling findings false positives merely because the main web process does not call the tool. The historical dismissal helper remains protected by regression tests and its empty reviewed allowlist; this workflow does not use it.
 
-This repo builds the base images the platform is built on
-(`ghcr.io/north-relay/northrelay-base:{builder,runner}-alpine-latest`).
-Two things about it routinely mislead an alert responder, so they're written
-down here.
+## Remaining module-level finding
 
-## 1. The committed `package-lock.json` is a mirror, not the source of truth
-
-`package.json`, `package-lock.json`, `.npmrc` and `prisma/schema.prisma` are
-**re-fetched from `North-Relay/northrelay-platform` at build time** by the
-`fetch-deps` job before any image is built. The copies committed here are only
-used by a local `docker build`, and they drift as soon as the platform moves.
-
-Consequences when triaging:
-
-- Dependabot alerts on this repo's `package-lock.json` describe a **stale
-  artifact that CI never builds**. They are near-duplicates of the alerts on
-  `northrelay-platform`, which is where the fix belongs.
-- Fixing a dependency CVE means bumping it in **`northrelay-platform`**, then
-  rebuilding here (push to `main`, the weekly Sunday cron, or a
-  `deps-updated` `repository_dispatch`).
-- Bumping only this repo's lockfile changes nothing about what ships.
-
-Check `northrelay-platform` first. If the CVE is already fixed there, the
-alert here is noise pending the next base rebuild.
-
-## 2. Accepted risk lives in `.trivyignore.yaml`, and nowhere else
-
-`.trivyignore.yaml` is the single reviewed list of CVEs this project accepts.
-It is read by Trivy (via the `trivyignores:` input in the build workflows) and
-by `dismiss-false-positives.sh`, which will only dismiss a Code Scanning alert
-whose CVE is listed there.
-
-To accept a risk, add an entry with a `statement` a reviewer can argue with.
-To auto-dismiss a **critical or high**, the entry additionally needs a
-`# severity_ack: true` comment — a deliberate second step.
-
-### What not to do
-
-Do not scope acceptances by `paths:`, and do not select alerts by matching
-`most_recent_instance.location.path`. These workflows scan **images**, so
-Trivy reports OS and language packages and the SARIF location is the image
-reference: every alert on this repo reports the path
-`north-relay/northrelay-base`. Path matching therefore cannot tell two
-findings apart.
-
-That is not hypothetical. `dismiss-false-positives.sh` previously carried a
-rule whose pattern was `north-relay/northrelay-base`, written to silence one
-Alpine zlib CVE. It matched every open alert — criticals included — and
-dismissed them as `won't fix`, which GitHub treats as sticky, so nothing
-reopened on the next scan. The behaviour is pinned shut by
-`tests/test-dismiss-false-positives.sh`.
-
-Wildcards (`id: "*"`, `CVE-*`) don't work either: Trivy matches IDs exactly, so
-those entries silence nothing while reading as though they do. CI rejects them.
-
-## 3. What CI enforces
-
-`.github/workflows/security-checks.yml` fails the build on:
-
-- an unpinned `uses:` in any workflow — these jobs hold `security-events: write`
-- a wildcard ID or a leftover plain `.trivyignore`
-- a `dl.min.io` fetch in a runner Dockerfile with no `sha256sum -c`
-- any regression in the dismissal-script tests
-
-## Reporting
-
-Report a suspected vulnerability in the images privately via GitHub Security
-Advisories on this repo. Do not open a public issue.
+GO-2026-5932 applies to golang.org/x/crypto/openpgp. The client does not import any affected package. Its build rejects those imports and includes the compiled package inventory at /usr/share/minio-mc/compiled-packages.txt. govulncheck v1.8.0 reports zero affected symbols and imported packages. Trivy's module-level warning is retained in reports; it is not dismissed or broadly ignored.

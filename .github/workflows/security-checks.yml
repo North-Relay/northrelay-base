@@ -21,6 +21,9 @@ jobs:
       - run: npm ci --ignore-scripts --legacy-peer-deps
       - run: npm audit --audit-level=moderate
       - run: npx prisma generate
+      - run: npm ci --prefix tools/npm --ignore-scripts
+      - run: npm audit --prefix tools/npm --audit-level=low
+      - run: node --test tests/image-scan.test.mjs
 
   alert-suppression:
     name: Alert suppression guards
@@ -31,7 +34,7 @@ jobs:
       - name: Lint shell
         run: |
           shellcheck --severity=error dismiss-false-positives.sh \
-                                      tests/test-dismiss-false-positives.sh
+                                      tests/test-dismiss-false-positives.sh tests/image-smoke.sh
 
       - name: Dismissal script regression tests
         run: bash tests/test-dismiss-false-positives.sh

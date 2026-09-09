@@ -1,0 +1,8 @@
+{
+  "name": "northrelay-builder-npm",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "npm": "11.19.1"
+  }
+}
