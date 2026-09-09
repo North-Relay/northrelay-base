@@ -8,7 +8,9 @@ RUN curl -fsSL https://codeload.github.com/minio/mc/tar.gz/77f82e18b5401a65958f1
 COPY tools/mc/go.mod tools/mc/go.sum ./
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go build -mod=readonly -trimpath -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2026-09-09T00:00:00Z -X github.com/minio/mc/cmd.CommitID=77f82e18b5401a65958f1619df6ebb994634bd88" -o /out/mc .
+    go build -mod=readonly -trimpath -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2026-09-09T00:00:00Z -X github.com/minio/mc/cmd.CommitID=77f82e18b5401a65958f1619df6ebb994634bd88" -o /out/mc . \
+    && go list -mod=readonly -deps . > /out/mc-dependencies.txt \
+    && ! grep -q '^golang.org/x/crypto/openpgp' /out/mc-dependencies.txt
 
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 RUN apk upgrade --no-cache && apk add --no-cache openssl curl ca-certificates postgresql-client
@@ -22,6 +24,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 COPY --from=mc-build /out/mc /usr/local/bin/mc
 COPY tools/mc/LICENSE /usr/share/licenses/minio-mc/LICENSE
+COPY --from=mc-build /out/mc-dependencies.txt /usr/share/minio-mc/compiled-packages.txt
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
 ENV PORT=3000 HOSTNAME="0.0.0.0"
 USER nextjs

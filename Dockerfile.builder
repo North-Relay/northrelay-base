@@ -1,10 +1,8 @@
 # syntax=docker/dockerfile:1
 # Locked application dependencies and scanned tooling; see SECURITY.md.
 
-FROM node:22-trixie-slim@sha256:7b8a0c89c54499bee567618f96578e1a12a800f062fbdbfd1fb6a443fa6f6284
-RUN apt-get update && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends openssl \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+RUN apk upgrade --no-cache && apk add --no-cache openssl python3 make g++
 WORKDIR /app
 # Replace Node's bundled npm with the separately reviewed maintenance release.
 COPY tools/npm/package.json tools/npm/package-lock.json /opt/build-npm/
@@ -22,5 +20,5 @@ RUN --mount=type=cache,target=/root/.npm \
 
 ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
-LABEL org.opencontainers.image.base.name="docker.io/library/node:22-trixie-slim"
-LABEL org.opencontainers.image.base.digest="sha256:7b8a0c89c54499bee567618f96578e1a12a800f062fbdbfd1fb6a443fa6f6284"
+LABEL org.opencontainers.image.base.name="docker.io/library/node:22-alpine"
+LABEL org.opencontainers.image.base.digest="sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"

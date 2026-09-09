@@ -84,7 +84,7 @@ jobs:
           name: scan-${{ matrix.image }}
           path: trivy-image.*
           retention-days: 30
-      - name: Reject every vulnerability with an available fix
+      - name: Reject high/critical findings and every available fix
         run: node scripts/check-image-scan.mjs trivy-image.json
       - name: Save the verified image
         if: github.ref == 'refs/heads/main'

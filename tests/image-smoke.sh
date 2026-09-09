@@ -11,6 +11,8 @@ else
     ! command -v npm
     ! command -v npx
     ! command -v yarn
+    test -s /usr/share/minio-mc/compiled-packages.txt
+    ! grep -q "^golang.org/x/crypto/openpgp" /usr/share/minio-mc/compiled-packages.txt
     mc --version
     mkdir -p /tmp/mc-smoke
     printf "backup smoke test\n" > /tmp/mc-smoke/source

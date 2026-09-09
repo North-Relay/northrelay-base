@@ -8,12 +8,12 @@ RUN curl -fsSL https://codeload.github.com/minio/mc/tar.gz/77f82e18b5401a65958f1
 COPY tools/mc/go.mod tools/mc/go.sum ./
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    go build -mod=readonly -trimpath -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2026-09-09T00:00:00Z -X github.com/minio/mc/cmd.CommitID=77f82e18b5401a65958f1619df6ebb994634bd88" -o /out/mc .
+    go build -mod=readonly -trimpath -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2026-09-09T00:00:00Z -X github.com/minio/mc/cmd.CommitID=77f82e18b5401a65958f1619df6ebb994634bd88" -o /out/mc . \
+    && go list -mod=readonly -deps . > /out/mc-dependencies.txt \
+    && ! grep -q '^golang.org/x/crypto/openpgp' /out/mc-dependencies.txt
 
-FROM node:22-trixie-slim@sha256:7b8a0c89c54499bee567618f96578e1a12a800f062fbdbfd1fb6a443fa6f6284
-RUN apt-get update && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends openssl wget curl ca-certificates postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+RUN apk upgrade --no-cache && apk add --no-cache openssl curl ca-certificates postgresql-client
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
@@ -24,12 +24,13 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack 
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 COPY --from=mc-build /out/mc /usr/local/bin/mc
 COPY tools/mc/LICENSE /usr/share/licenses/minio-mc/LICENSE
-RUN groupadd --system --gid 1001 nodejs && useradd --system --create-home --uid 1001 --gid nodejs nextjs
+COPY --from=mc-build /out/mc-dependencies.txt /usr/share/minio-mc/compiled-packages.txt
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
 ENV PORT=3000 HOSTNAME="0.0.0.0"
 USER nextjs
 
 ENV NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production
 LABEL org.opencontainers.image.source="https://github.com/North-Relay/northrelay-base"
-LABEL org.opencontainers.image.base.name="docker.io/library/node:22-trixie-slim"
-LABEL org.opencontainers.image.base.digest="sha256:7b8a0c89c54499bee567618f96578e1a12a800f062fbdbfd1fb6a443fa6f6284"
+LABEL org.opencontainers.image.base.name="docker.io/library/node:22-alpine"
+LABEL org.opencontainers.image.base.digest="sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
 LABEL minio.mc.source.revision="77f82e18b5401a65958f1619df6ebb994634bd88"
