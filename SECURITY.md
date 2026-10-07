@@ -21,10 +21,10 @@ GO-2026-5932 applies to golang.org/x/crypto/openpgp. The client does not import 
 
 ## Findings without an upstream fix (October 2026)
 
-These have no patched release and still block the release gate, by design:
+This has no patched release and still blocks the release gate, by design:
 
-- GHSA-ch52-4w7c-c8xp, http-cache-semantics <= 4.2.0 (high), bundled in npm (builders only). The 4.3.0 release does not change max-stale handling. npm uses it for its own per-user registry cache, not a shared cache serving other users.
-- GHSA-vfj7-8cjw-p6xm, braces <= 3.0.3 (high), dev-only through tailwindcss 3, fast-glob and chokidar (builders only). It expands build-time glob patterns from the repository's own config, not untrusted input. Removing it needs Tailwind 4.
-- GHSA-hp3w-g68c-fv3c, sprintf-js <= 1.1.3 (moderate), dev-only through Jest's js-yaml 3. It fails `npm audit`, not the image scan.
+- GHSA-ch52-4w7c-c8xp, http-cache-semantics <= 4.2.0 (high), bundled in npm (builders only). The 4.3.0 release does not change max-stale handling, and npm 12.2.0 still depends on it through make-fetch-happen. npm uses it for its own per-user registry cache, not a shared cache serving other users.
 
-Accepting any of them is a human decision recorded in .trivyignore.yaml. Until then, builder publication stays blocked.
+Two other unpatched advisories, GHSA-vfj7-8cjw-p6xm (braces) and GHSA-hp3w-g68c-fv3c (sprintf-js), were removed rather than accepted. They came only from lint and test tooling (eslint-config-next, @typescript-eslint, @jest/globals) and Tailwind 3. The builder lock now carries Tailwind 4, as the platform does, and leaves out the lint and test packages, which an image build never runs.
+
+Accepting it is a human decision recorded in .trivyignore.yaml. Until then, builder publication stays blocked.
