@@ -5,6 +5,17 @@ docker run --rm --entrypoint node "$image" -e "require('mjml')('<mjml><mj-body><
 docker run --rm --entrypoint node "$image" node_modules/tsx/dist/cli.mjs -e "console.log('tsx runtime passed')"
 if [[ "$image" == *builder* ]]; then
   docker run --rm --entrypoint sh "$image" -c 'test "$(npm --version)" = 11.19.1 && npx --no-install prisma --version'
+  # npm's patched replacements must be what its bundled consumers actually load.
+  docker run --rm --entrypoint node "$image" -e "
+    const { createRequire } = require('module');
+    const npm = '/opt/build-npm/node_modules/npm/node_modules/';
+    const want = require('/opt/build-npm/package.json').dependencies;
+    for (const [consumer, dep] of [['node-gyp', 'undici'], ['socks', 'ip-address'],
+      ['minimatch', 'brace-expansion'], ['@npmcli/query', 'postcss-selector-parser']]) {
+      const found = require(createRequire(npm + consumer + '/package.json').resolve(dep + '/package.json'));
+      if (found.version !== want[dep]) throw new Error(consumer + ' loads ' + dep + '@' + found.version);
+    }
+    console.log('npm dependency replacements passed')"
 else
   docker run --rm --entrypoint sh "$image" -ec '
     test "$(id -u)" = 1001

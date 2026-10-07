@@ -1,5 +1,7 @@
 # Base-image security
 The committed package.json/package-lock.json and Prisma schema are the reviewed build inputs. CI never replaces them from another repository's moving branch. Builders also install npm 11.19.1 from the separate tools/npm lock; npm's bundled dependencies are audited independently.
+## npm toolchain replacements
+npm ships its dependencies bundled, so overrides cannot patch them. Every module in tools/npm/package.json other than npm is a locked, patched replacement (currently undici, ip-address, brace-expansion and postcss-selector-parser). The builder deletes each one's bundled copy, failing the build if it is missing or nested elsewhere, so npm resolves the replacement. The smoke test asserts npm's consuming modules load the locked versions. `npm audit` still lists the deleted bundled copies; scripts/check-npm-tool-audit.mjs exempts exactly those nodes and nothing else. Remove a replacement once an npm release bundles the fix.
 ## Image tooling
 Version 2 uses Alpine for all maintained tags and pins the official Node 22 base by digest. Available Alpine OS updates are applied. Builder images retain the reviewed npm release for application builds. Runtime images remove npm, npx, Yarn and Corepack and run as UID 1001. Invoke runtime workers with Node directly, for example `node node_modules/tsx/dist/cli.mjs src/workers/email-worker.ts`.
 The runtime MinIO client remains available for backups. It is compiled from a checksum-verified, pinned source archive with the reviewed tools/mc module locks and a digest-pinned Go compiler. See tools/mc/README.md for provenance and maintenance.
@@ -16,3 +18,13 @@ Review the complete scan artifact and the exact image revision. Do not label bun
 ## Remaining module-level finding
 
 GO-2026-5932 applies to golang.org/x/crypto/openpgp. The client does not import any affected package. Its build rejects those imports and includes the compiled package inventory at /usr/share/minio-mc/compiled-packages.txt. govulncheck v1.8.0 reports zero affected symbols and imported packages. Trivy's module-level warning is retained in reports; it is not dismissed or broadly ignored.
+
+## Findings without an upstream fix (October 2026)
+
+These have no patched release and still block the release gate, by design:
+
+- GHSA-ch52-4w7c-c8xp, http-cache-semantics <= 4.2.0 (high), bundled in npm (builders only). The 4.3.0 release does not change max-stale handling. npm uses it for its own per-user registry cache, not a shared cache serving other users.
+- GHSA-vfj7-8cjw-p6xm, braces <= 3.0.3 (high), dev-only through tailwindcss 3, fast-glob and chokidar (builders only). It expands build-time glob patterns from the repository's own config, not untrusted input. Removing it needs Tailwind 4.
+- GHSA-hp3w-g68c-fv3c, sprintf-js <= 1.1.3 (moderate), dev-only through Jest's js-yaml 3. It fails `npm audit`, not the image scan.
+
+Accepting any of them is a human decision recorded in .trivyignore.yaml. Until then, builder publication stays blocked.

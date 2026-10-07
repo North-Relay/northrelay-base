@@ -2,11 +2,20 @@
 # Locked application dependencies and scanned tooling; see SECURITY.md.
 
 FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
-RUN apk upgrade --no-cache && apk add --no-cache openssl python3 make g++
+# Version floors make the fixed Alpine packages a build requirement rather than relying on a
+# fresh `apk upgrade` layer (the CI layer cache can otherwise keep an older one).
+RUN apk upgrade --no-cache && apk add --no-cache openssl 'python3>=3.14.8-r0' make g++
 WORKDIR /app
-# Replace Node's bundled npm with the separately reviewed maintenance release.
+# Replace Node's bundled npm with the separately reviewed maintenance release. npm bundles its
+# dependencies, so overrides cannot patch them: every other module in tools/npm/package.json is a
+# locked, patched replacement whose bundled copy is deleted so resolution falls through to it.
 COPY tools/npm/package.json tools/npm/package-lock.json /opt/build-npm/
 RUN npm ci --prefix /opt/build-npm --ignore-scripts --no-audit --no-fund \
+    && for m in $(node -p "Object.keys(require('/opt/build-npm/package.json').dependencies).filter(n => n !== 'npm').join(' ')"); do \
+         { test -d "/opt/build-npm/node_modules/npm/node_modules/$m" \
+           && rm -rf "/opt/build-npm/node_modules/npm/node_modules/$m" \
+           && ! find /opt/build-npm/node_modules/npm -type d -path "*/node_modules/$m" | grep -q .; } || exit 1; \
+       done \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-* \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
     && ln -s /opt/build-npm/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
